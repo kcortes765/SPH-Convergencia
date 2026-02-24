@@ -1,0 +1,33 @@
+{
+    "dsph_bin": "C:\\Users\\ProyBloq_Cortes\\Desktop\\CarpetaTesis\\ejecutablesWindows",
+    "executables": {
+        "gencase": "GenCase_win64.exe",
+        "dualsphysics_gpu": "DualSPHysics5.4_win64.exe",
+        "dualsphysics_cpu": "DualSPHysics5.4CPU_win64.exe",
+        "floatinginfo": "FloatingInfo_win64.exe",
+        "partvtk": "PartVTK_win64.exe",
+        "boundaryvtk": "BoundaryVTK_win64.exe",
+        "measuretool": "MeasureTool_win64.exe",
+        "computeforces": "ComputeForces_win64.exe",
+        "isosurface": "IsoSurface_win64.exe"
+    },
+    "defaults": {
+        "dp_dev": 0.02,
+        "dp_prod": 0.004,
+        "time_max": 10.0,
+        "time_out": 10.0,
+        "ft_pause": 0.5,
+        "gpu_id": 0,
+        "timeout_seconds": 7200
+    },
+    "paths": {
+        "template_xml": "config/template_base.xml",
+        "materials_xml": "config/Floating_Materials.xml",
+        "boulder_stl": "models/BLIR3.stl",
+        "beach_stl": "models/Canal_Playa_1esa20_750cm.stl",
+        "cases_dir": "cases",
+        "data_dir": "data",
+        "processed_dir": "data/processed"
+    },
+    "_comment_workstation": "En la workstation UCN, cambiar dsph_bin a: C:\\Users\\ProyBloq_Cortes\\Desktop\\CarpetaTesis\\ejecutablesWindows"
+}

@@ -1,0 +1,207 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<case app="GenCase4 v4.0.069 (21-05-2018)" date="11-07-2018 01:16:29">
+    <casedef>
+        <constantsdef>
+            <gravity x="0" y="0" z="-9.81" comment="Gravitational acceleration" units_comment="m/s^2" />
+            <rhop0 value="1000" comment="Reference density of the fluid" units_comment="kg/m^3" />
+            <rhopgradient value="2" comment="Initial density gradient 1:Rhop0, 2:Water column, 3:Max. water height (default=2)" />
+            <hswl value="0" auto="true" comment="Maximum still water level to calculate speedofsound using coefsound" units_comment="metres (m)" />
+            <gamma value="7" comment="Polytropic constant for water used in the state equation" />
+            <speedsystem value="0" auto="true" comment="Maximum system speed (by default the dam-break propagation is used)" />
+            <coefsound value="20" comment="Coefficient to multiply speedsystem" />
+            <speedsound value="0" auto="true" comment="Speed of sound to use in the simulation (by default speedofsound=coefsound*speedsystem)" />
+            <coefh value="0.75" comment="Coefficient to calculate the smoothing length (h=coefh*sqrt(3*dp^2) in 3D)" />
+            <cflnumber value="0.2" comment="Coefficient to multiply dt" />
+        </constantsdef>
+        <mkconfig boundcount="240" fluidcount="9" />
+        <geometry>
+            <definition dp="0.05" units_comment="metres (m)"> 
+				<pointmin x="-0.05" y="-0.05" z="-0.15" />
+                <pointmax x="15.05" y="1.05" z="1.55" />
+            </definition>
+            <commands>
+                <mainlist>
+                    <setshapemode>actual | dp | bound</setshapemode>
+                    <setdrawmode mode="full" />
+                    <setmkfluid mk="0" />
+                    <drawbox>
+                        <boxfill>solid</boxfill>
+                        <point x="0.0" y="0.0" z="0.0" />
+                        <size x="3.0" y="1.0" z="0.3" />
+                    </drawbox>
+                    <setmkbound mk="51" />					
+					<drawfilestl file="BLIR3.stl">
+						<drawscale x="0.04" y="0.04" z="0.04"/>
+						<drawmove x="8.5" y="0.5" z="0.1"/>
+					</drawfilestl>
+					<fillbox x="8.5" y="0.51" z="0.11" mkbound="51">
+                        <modefill>void</modefill>
+                        <point x="8.0" y="0.0" z="-0.05" />
+                        <size x="1.0" y="1.0" z="0.2" />
+					</fillbox>					
+					<setdrawmode mode="face" />
+                    <setmkbound mk="0" />
+					<setfrdrawmode auto="true" />
+                    <drawfilestl file="Canal_Playa_1esa20_750cm.stl" />
+					<setfrdrawmode auto="false" />
+					<shapeout file="beach" />
+                </mainlist>
+            </commands>
+        </geometry>
+        <floatings>
+            <floating mkbound="51-53" property="pvc" >
+                <massbody value="1.06053" />  !-- better to impose mass than density (800 kg/m^3) since mass will not change with "dp"
+            </floating>
+        </floatings>
+        <properties>
+            <propertyfile file="Floating_Materials.xml" path="materials" />
+            <links>
+                <link mkbound="0" property="steel" comment="Property for the tank" />
+            </links>
+        </properties>
+    </casedef>
+    <execution>
+        <special>
+            <chrono>
+                <savedata value="0.001" comment="Saves CSV with data exchange for each time interval (0=all steps)" />
+                <schemescale value="1" comment="Scale used to create the initial scheme of Chrono objects (default=1)" />
+				<collision activate="true">
+				    <distancedp value="0.5" comment="Allowed collision overlap according Dp (default=0.5)" />
+					<contactmethod value="0" comment="Contact method type. 0:NSC (Non Smooth Contacts), 1:SMC (SMooth Contacts). (default=0)" />	
+				</collision>
+				<bodyfloating id="BLIR" mkbound="51" modelfile="AutoActual" />
+                <bodyfixed id="beach" mkbound="0" modelfile="AutoActual" modelnormal="invert" />
+            </chrono>
+			<gauges>
+				<default>
+					<Savevtkpart value="false" />
+					<computedt value="0.001" unit_comment="s"/>
+					<computetime start="0.0" end="10" unit_comment="s"/>
+					<output value="true"/>
+					<outputdt value="0" unit_comment="s"/>
+					<outputtime start="0" end="10" units_comment="s"/>
+				</default>
+				<velocity name="V01" comment="Velocidad al inicio del agua">
+					<point x="0.25" y="0.75" z="0.10" units_comment="m"/>
+				</velocity>
+				<velocity name="V02" comment="Velocidad a la mitad del agua">
+					<point x="1.50" y="0.50" z="0.10" units_comment="m"/>
+				</velocity>
+				<velocity name="V03" comment="Velocidad al final del agua">
+					<point x="2.50" y="0.25" z="0.10" units_comment="m"/>
+				</velocity>
+				<velocity name="V04">
+					<point x="3.00" y="0.50" z="0.10" units_comment="m"/>
+				</velocity>
+				<velocity name="V05">
+					<point x="5.25" y="0.25" z="0.10" units_comment="m"/>
+				</velocity>
+				<velocity name="V06">
+					<point x="7.50" y="0.50" z="0.15" units_comment="m"/>
+				</velocity>
+				<velocity name="V07">
+					<point x="8.25" y="0.50" z="0.15" units_comment="m"/>
+				</velocity>
+				<velocity name="V08">
+					<point x="8.75" y="0.25" z="0.15" units_comment="m"/>
+				</velocity>
+				<velocity name="V09">
+					<point x="8.75" y="0.50" z="0.15" units_comment="m"/>
+				</velocity>
+				<velocity name="V10">
+					<point x="8.75" y="0.75" z="0.15" units_comment="m"/>
+				</velocity>
+				<velocity name="V11">
+					<point x="9.50" y="0.50" z="0.20" units_comment="m"/>
+				</velocity>
+				<velocity name="V12">
+					<point x="12.00" y="0.50" z="0.30" units_comment="m"/>
+				</velocity>
+				<maxz name="hmax01" comment="Altura al inicio del agua" units_comment="m">
+					<point0 x="0.25" y="0.75" z="0.30" units_comment="m" />
+					<height value="1.0" units_comment="m" />
+					<distlimit value="0.04" units_comment="m" />
+					<_distlimit coefdp="2" />
+					<_distlimit coefh="0.1" />
+				</maxz>
+				<maxz name="hmax02" comment="Altura al final del agua" units_comment="m">
+					<point0 x="3.00" y="0.50" z="0.30" units_comment="m" />
+					<height value="1.0" units_comment="m" />
+					<distlimit value="0.04" units_comment="m" />
+					<_distlimit coefdp="2" />
+					<_distlimit coefh="0.1" />
+				</maxz>
+				<maxz name="hmax03" >
+					<point0 x="5.25" y="0.50" z="0.30" units_comment="m" />
+					<height value="1.0" units_comment="m" />
+					<distlimit value="0.04" units_comment="m" />
+					<_distlimit coefdp="2" />
+					<_distlimit coefh="0.1" />
+				</maxz>
+				<maxz name="hmax04" >
+					<point0 x="7.50" y="0.50" z="0.15" units_comment="m" />
+					<height value="1.0" units_comment="m" />
+					<distlimit value="0.04" units_comment="m" />
+					<_distlimit coefdp="2" />
+					<_distlimit coefh="0.1" />
+				</maxz>
+				<maxz name="hmax05" >
+					<point0 x="8.25" y="0.50" z="0.15" units_comment="m" />
+					<height value="1.0" units_comment="m" />
+					<distlimit value="0.04" units_comment="m" />
+					<_distlimit coefdp="2" />
+					<_distlimit coefh="0.1" />
+				</maxz>
+				<maxz name="hmax06" >
+					<point0 x="8.75" y="0.50" z="0.15" units_comment="m" />
+					<height value="1.0" units_comment="m" />
+					<distlimit value="0.04" units_comment="m" />
+					<_distlimit coefdp="2" />
+					<_distlimit coefh="0.1" />
+				</maxz>
+				<maxz name="hmax07" >
+					<point0 x="9.50" y="0.50" z="0.20" units_comment="m" />
+					<height value="1.0" units_comment="m" />
+					<distlimit value="0.04" units_comment="m" />
+					<_distlimit coefdp="2" />
+					<_distlimit coefh="0.1" />
+				</maxz>
+				<maxz name="hmax08" >
+					<point0 x="12.00" y="0.50" z="0.30" units_comment="m" />
+					<height value="1.0" units_comment="m" />
+					<distlimit value="0.04" units_comment="m" />
+					<_distlimit coefdp="2" />
+					<_distlimit coefh="0.1" />
+				</maxz>
+			</gauges>
+        </special>
+        <parameters>
+            <parameter key="SavePosDouble" value="0" comment="Saves particle position using double precision (default=0)" />
+            <parameter key="StepAlgorithm" value="2" comment="Step Algorithm 1:Verlet, 2:Symplectic (def=1)" />
+            <parameter key="VerletSteps" value="40" comment="Verlet only: Number of steps to apply Eulerian equations (def=40)" />
+            <parameter key="Kernel" value="2" comment="Interaction Kernel 1:Cubic Spline, 2:Wendland (def=1)" />
+            <parameter key="ViscoTreatment" value="1" comment="Viscosity Formulation 1:Artificial, 2:Laminar+SPS (def=1)" />
+            <parameter key="Visco" value="0.05" comment="Viscosity value" />
+            <parameter key="ViscoBoundFactor" value="0" comment="Multiply viscosity value with boundary (default=1)" />
+			<parameter key="DensityDT" value="2" comment="Density Diffusion Term 0:None, 1:Molteni, 2:Fourtakas, 3:Fourtakas(full) (default=0)" />
+			<parameter key="DensityDTvalue" value="0.1" comment="DDT value (default=0.1)" />
+            <parameter key="Shifting" value="0" comment="Shifting mode 0:None, 1:Ignore bound, 2:Ignore fixed, 3:Full (default=0)" />
+            <parameter key="ShiftCoef" value="-2" comment="Coefficient for shifting computation (default=-2)" />
+            <parameter key="ShiftTFS" value="0" comment="Threshold to detect free surface. Typically 1.5 for 2D and 2.75 for 3D (default=0)" />
+            <parameter key="RigidAlgorithm" value="3" comment="Rigid Algorithm 0:collision-free, 1:SPH, 2:DEM, 3:Chrono (default=1)" />
+            <parameter key="FtPause" value="0.5" comment="Time to freeze the floatings at simulation start (warmup) (def=0)" />
+            <parameter key="DtIni" value="0" comment="Initial time step. Use 0 to defult use (default=h/speedsound)" units_comment="seconds" />
+            <parameter key="DtMin" value="0" comment="Minimum time step. Use 0 to defult use (default=coefdtmin*h/speedsound)" units_comment="seconds" />
+            <parameter key="DtAllParticles" value="0" comment="Velocity of particles used to calculate DT. 1:All, 0:Only fluid/floating (default=0)" />
+            <parameter key="TimeMax" value="10" comment="Time of simulation" />
+            <parameter key="TimeOut" value="10.0" comment="Time between output files" />
+            <parameter key="PartsOutMax" value="1" comment="%/100 of fluid particles allowed to be excluded from domain (default=1)" units_comment="decimal" />
+            <parameter key="RhopOutMin" value="700" comment="Minimum rhop valid (default=700)" units_comment="kg/m^3" />
+            <parameter key="RhopOutMax" value="1300" comment="Maximum rhop valid (default=1300)" units_comment="kg/m^3" />
+            <simulationdomain comment="Defines domain of simulation (default=Uses minimun and maximum position of the generated particles)">
+                <posmin x="default" y="default" z="default" comment="e.g.: x=0.5, y=default-1, z=default-10%" />
+                <posmax x="default" y="default" z="default + 20%" />
+            </simulationdomain>
+        </parameters>
+    </execution>
+</case>

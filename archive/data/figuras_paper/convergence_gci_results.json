@@ -1,0 +1,61 @@
+{
+  "timestamp": "2026-02-21T01:32:38.651161",
+  "study": "convergence_formal_gci",
+  "n_resolutions": 5,
+  "dp_values": [
+    0.02,
+    0.015,
+    0.01,
+    0.008,
+    0.005
+  ],
+  "best_triplet": [
+    0.005,
+    0.008,
+    0.015
+  ],
+  "metrics": {
+    "Displacement": {
+      "convergence_type": "monotonic_divergence",
+      "p_apparent": 0.5,
+      "phi_extrapolated": null,
+      "GCI_fine_pct": null,
+      "uncertainty_pct": 31.317101477339254
+    },
+    "SPH Force": {
+      "convergence_type": "monotonic_divergence",
+      "p_apparent": 1.7362395031834026,
+      "phi_extrapolated": null,
+      "GCI_fine_pct": null,
+      "uncertainty_pct": 103.45055182860854
+    },
+    "Velocity": {
+      "convergence_type": "oscillatory",
+      "p_apparent": 3.138952129657556,
+      "phi_extrapolated": null,
+      "GCI_fine_pct": null,
+      "uncertainty_pct": 6.420566344426379
+    },
+    "Rotation": {
+      "convergence_type": "monotonic_divergence",
+      "p_apparent": 4.0,
+      "phi_extrapolated": null,
+      "GCI_fine_pct": null,
+      "uncertainty_pct": 21.581681604380687
+    },
+    "Contact Force": {
+      "convergence_type": "monotonic_divergence",
+      "p_apparent": 3.7492628714102683,
+      "phi_extrapolated": null,
+      "GCI_fine_pct": null,
+      "uncertainty_pct": 87.86981053064642
+    },
+    "Flow Velocity": {
+      "convergence_type": "oscillatory",
+      "p_apparent": 1.8780144737669398,
+      "phi_extrapolated": null,
+      "GCI_fine_pct": null,
+      "uncertainty_pct": 10.809699958898486
+    }
+  }
+}

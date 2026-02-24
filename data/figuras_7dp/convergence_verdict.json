@@ -1,0 +1,31 @@
+{
+  "timestamp": "2026-02-21T19:40:17.794893",
+  "n_dp": 7,
+  "verdict": "CONVERGENCIA ALCANZADA",
+  "verdict_detail": "Las 3 metricas primarias (desplazamiento, fuerza SPH, velocidad) muestran delta < 5% entre los dos dp mas finos. dp=0.003 es ADECUADO para produccion.",
+  "primary_converged": true,
+  "metrics": {
+    "displacement": {
+      "last_delta_pct": 3.851199562663786,
+      "converged": true
+    },
+    "sph_force": {
+      "last_delta_pct": 2.7925861695710874,
+      "converged": true
+    },
+    "velocity": {
+      "last_delta_pct": 0.8465096359743114,
+      "converged": true
+    },
+    "rotation": {
+      "last_delta_pct": 6.299033862246903,
+      "converged": true
+    },
+    "contact_force": {
+      "cv_pct": 81.66079303356693,
+      "converged": false
+    }
+  },
+  "recommended_dp": 0.003,
+  "total_compute_min": 1268.9225313345592
+}

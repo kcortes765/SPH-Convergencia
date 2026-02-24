@@ -1,0 +1,16 @@
+{
+  "phase": "completed",
+  "dp": 0.02,
+  "mode": "dev",
+  "total_cases": 5,
+  "desde": 0,
+  "pending": 5,
+  "completed": 0,
+  "failed": 0,
+  "current_case": "lhs_005",
+  "start_time": "2026-02-21T13:07:52.881977",
+  "dry_run": true,
+  "updated": "2026-02-21T13:07:52.892277",
+  "progress": "5/5",
+  "end_time": "2026-02-21T13:07:52.890774"
+}

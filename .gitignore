@@ -1,0 +1,40 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# DualSPHysics binaries (heavy)
+*.bi4
+*.cbi4
+*.obi4
+*.ibi4
+*.vtk
+*.ply
+*.obj
+*.out
+
+# STL models (large binary meshes)
+*.stl
+
+# Simulation raw outputs
+cases/*/lhs_*_out/
+cases/test_diego_reference/test_diego_reference_out/
+
+# Processed simulation data (large CSVs, keep local only)
+data/processed/
+data/*.log
+data/*.pkl
+
+# SQLite
+*.sqlite
+*.db
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Agent internal state
+.agente/

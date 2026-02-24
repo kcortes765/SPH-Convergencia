@@ -1,0 +1,31 @@
+{
+  "timestamp": "2026-02-21T15:55:32.172201",
+  "n_dp": 6,
+  "verdict": "CONVERGENCIA PARCIAL",
+  "verdict_detail": "Convergidas: F_SPH, velocidad. dp=0.004 aceptable con caveats.",
+  "primary_converged": false,
+  "metrics": {
+    "displacement": {
+      "last_delta_pct": 6.383348794063084,
+      "converged": false
+    },
+    "sph_force": {
+      "last_delta_pct": 0.9126466753585434,
+      "converged": true
+    },
+    "velocity": {
+      "last_delta_pct": 0.846506003282373,
+      "converged": true
+    },
+    "rotation": {
+      "last_delta_pct": 2.28136882129278,
+      "converged": true
+    },
+    "contact_force": {
+      "cv_pct": 71.8338218232791,
+      "converged": false
+    }
+  },
+  "recommended_dp": 0.004,
+  "total_compute_min": 456.8
+}
