@@ -93,6 +93,72 @@ def update_status(status: dict):
             tmp.unlink()
 
 
+# ---------------------------------------------------------------------------
+# Formateo de progreso
+# ---------------------------------------------------------------------------
+
+def _fmt_time(seconds):
+    """Formatea segundos a string legible."""
+    s = int(seconds)
+    if s < 60:
+        return f"{s}s"
+    elif s < 3600:
+        m, sec = divmod(s, 60)
+        return f"{m}min {sec}s"
+    elif s < 86400:
+        h, rem = divmod(s, 3600)
+        m = rem // 60
+        return f"{h}h {m}min"
+    else:
+        d, rem = divmod(s, 86400)
+        h = rem // 3600
+        return f"{d}d {h}h"
+
+
+def _progress_banner(i, n_pending, n_total, desde, status, case_durations,
+                      campaign_start, row, dp):
+    """Genera banner informativo antes de cada caso."""
+    case_num = desde + i
+    elapsed = (datetime.now() - campaign_start).total_seconds()
+    ok = status['completed']
+    fail = status['failed']
+    done = ok + fail
+    remaining = n_pending - i
+    pct = done / n_total * 100 if n_total > 0 else 0
+
+    bar_len = 30
+    filled = int(bar_len * done / n_total) if n_total > 0 else 0
+    bar = '#' * filled + '-' * (bar_len - filled)
+
+    rot_z = row.get('boulder_rot_z', 0)
+    lines = [
+        f"\n{'='*65}",
+        f"  CASO {case_num}/{n_total} [{row['case_id']}]  [{bar}] {pct:.0f}%",
+        f"  h={row['dam_height']:.3f}m | M={row['boulder_mass']:.3f}kg | "
+        f"theta={rot_z:.1f}deg | dp={dp}",
+        f"{'~'*65}",
+        f"  Completados: {ok}   Fallidos: {fail}   Quedan: {remaining}",
+        f"  Tiempo transcurrido: {_fmt_time(elapsed)}",
+    ]
+
+    if case_durations:
+        recent = case_durations[-10:]
+        avg = sum(recent) / len(recent)
+        eta_s = remaining * avg
+        fin = (datetime.now() + timedelta(seconds=eta_s)).strftime('%d/%m %H:%M')
+        lines.append(f"  Promedio: {avg/60:.1f} min/caso (ultimos {len(recent)})")
+        lines.append(f"  ETA: {_fmt_time(eta_s)} restantes  -->  fin ~{fin}")
+    elif done == 0:
+        lines.append(f"  ETA: calculando tras primer caso...")
+
+    if done > 0:
+        tasa = ok / done * 100
+        lines.append(f"  Tasa exito: {tasa:.0f}% ({ok}/{done})")
+
+    lines.append(f"{'='*65}")
+    return "\n".join(lines)
+
+
 MAX_FAIL_RATE = 0.30  # Abort si >30% de los casos fallan
 
 
@@ -248,20 +314,24 @@ def run_production(args):
 
     for i, (_, row) in enumerate(matrix.iterrows(), 1):
         case_id = row['case_id']
-        logger.info(f"\n--- Caso {desde + i}/{n_total} [{case_id}] ---")
-
         status['current_case'] = case_id
         status['progress'] = f"{i}/{n_pending}"
 
-        # Calcular ETA
+        # Calcular ETA con promedio movil
         if case_durations:
-            avg_duration = sum(case_durations) / len(case_durations)
-            remaining = (n_pending - i) * avg_duration
-            eta = datetime.now() + timedelta(seconds=remaining)
+            recent = case_durations[-10:]
+            avg_duration = sum(recent) / len(recent)
+            remaining_s = (n_pending - i) * avg_duration
+            eta = datetime.now() + timedelta(seconds=remaining_s)
             status['eta'] = eta.isoformat()
             status['avg_case_seconds'] = round(avg_duration, 1)
-            status['eta_human'] = f"{remaining/3600:.1f}h ({remaining/86400:.1f}d)"
+            status['eta_human'] = f"{remaining_s/3600:.1f}h ({remaining_s/86400:.1f}d)"
         update_status(status)
+
+        # Banner informativo
+        banner = _progress_banner(i, n_pending, n_total, desde, status,
+                                   case_durations, campaign_start, row, dp)
+        logger.info(banner)
 
         if args.dry_run:
             logger.info(f"  [DRY RUN] Saltando simulacion GPU")
@@ -275,22 +345,27 @@ def run_production(args):
             if result['success'] and result['result'] is not None:
                 successful_results.append(result['result'])
                 status['completed'] += 1
-                dur_min = result['duration_s'] / 60
+                dur = result['duration_s']
                 cr = result['result']
-                logger.info(f"  OK ({dur_min:.1f}min, disp={cr.max_displacement:.3f}m)")
+                estado = "MOVIMIENTO" if cr.failed else "ESTABLE"
+                logger.info(f"\n  >>> {case_id}: {estado} en {_fmt_time(dur)}")
+                logger.info(f"      disp={cr.max_displacement:.4f}m  rot={cr.max_rotation:.1f}deg  "
+                            f"vel={cr.max_velocity:.3f}m/s  F_sph={cr.max_sph_force:.1f}N")
+                if hasattr(cr, 'max_flow_velocity') and cr.max_flow_velocity:
+                    logger.info(f"      V_flujo={cr.max_flow_velocity:.3f}m/s  "
+                                f"H_agua={cr.max_water_height:.4f}m")
 
-                # Notificar cada caso
-                if True:
-                    elapsed = (datetime.now() - campaign_start).total_seconds()
-                    eta_str = status.get('eta_human', '?')
-                    notify(
-                        f"Progreso: {status['completed']}/{n_pending} OK",
-                        f"Fallidos: {status['failed']}\n"
-                        f"Ultimo: {case_id} ({dur_min:.0f}min)\n"
-                        f"Tiempo total: {elapsed/3600:.1f}h\n"
-                        f"ETA restante: {eta_str}",
-                        tags="chart_with_upwards_trend",
-                    )
+                # Notificar al celular
+                elapsed = (datetime.now() - campaign_start).total_seconds()
+                eta_str = status.get('eta_human', '?')
+                notify(
+                    f"{status['completed']}/{n_pending} [{case_id}] {estado}",
+                    f"Disp={cr.max_displacement:.3f}m | {_fmt_time(dur)}\n"
+                    f"Quedan: {n_pending - i} | ETA: {eta_str}\n"
+                    f"Fallidos: {status['failed']} | "
+                    f"Total: {_fmt_time(elapsed)}",
+                    tags="chart_with_upwards_trend",
+                )
             else:
                 status['failed'] += 1
                 logger.error(f"  FALLO: {result['error']}")

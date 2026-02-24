@@ -107,9 +107,9 @@ def load_data(synthetic: bool = False) -> pd.DataFrame:
     if synthetic or not DB_PATH.exists():
         print("Usando datos sinteticos...")
         rng = np.random.default_rng(42)
-        n = 35
-        h = rng.uniform(0.15, 0.50, n)
-        m = rng.uniform(0.5, 3.0, n)
+        n = 100
+        h = rng.uniform(0.10, 0.50, n)
+        m = rng.uniform(0.80, 1.60, n)
         theta = rng.uniform(0, 90, n)
         energy = 1000 * 9.81 * h**2 * 0.5
         resistance = m * 9.81 * 0.6
@@ -333,46 +333,82 @@ def fig06_flujo_vs_desplazamiento(df):
 
 
 def fig07_tabla_resumen(df):
-    """Fig 07: Tabla visual con todos los resultados."""
-    fig, ax = plt.subplots(figsize=(14, max(4, 0.4 * len(df) + 1.5)))
-    ax.axis('off')
-
+    """Fig 07: Tabla resumen estadistico + casos extremos (adaptada a N>=100)."""
+    n = len(df)
     cols = ['case_name', 'dam_height', 'boulder_mass', 'boulder_rot_z',
             'max_displacement', 'max_rotation', 'max_sph_force', 'failed']
     col_labels = ['Caso', 'h [m]', 'M [kg]', r'$\theta_z$ [°]',
                   'Desplaz [m]', 'Rot [°]', 'F_SPH [N]', 'Estado']
 
-    table_data = []
-    cell_colors = []
-    for _, row in df.iterrows():
-        failed = bool(row.get('failed', False))
-        status = 'MOV' if failed else 'EST'
-        bg = '#FFCDD2' if failed else '#C8E6C9'
-        table_data.append([
-            row['case_name'],
-            f"{row['dam_height']:.3f}",
-            f"{row['boulder_mass']:.2f}",
-            f"{row.get('boulder_rot_z', 0):.1f}",
-            f"{row['max_displacement']:.4f}",
-            f"{row.get('max_rotation', 0):.1f}",
-            f"{row.get('max_sph_force', 0):.1f}",
-            status,
-        ])
-        cell_colors.append([bg] * len(cols))
+    # Ordenar por desplazamiento descendente
+    df_sorted = df.sort_values('max_displacement', ascending=False).reset_index(drop=True)
 
-    table = ax.table(cellText=table_data, colLabels=col_labels,
-                     cellColours=cell_colors, loc='center',
+    # Estadisticas globales
+    n_moved = df['failed'].sum() if 'failed' in df else 0
+    n_stable = n - n_moved
+    stats_rows = [
+        ['ESTADISTICAS', f'N={n}', f'MOV={n_moved}', f'EST={n_stable}',
+         f'{df["max_displacement"].mean():.4f}',
+         f'{df.get("max_rotation", pd.Series([0])).mean():.1f}',
+         f'{df.get("max_sph_force", pd.Series([0])).mean():.1f}', '---'],
+        ['', 'Media', 'Mediana', 'Std',
+         f'{df["max_displacement"].median():.4f}',
+         f'{df.get("max_rotation", pd.Series([0])).median():.1f}',
+         f'{df.get("max_sph_force", pd.Series([0])).median():.1f}', '---'],
+    ]
+
+    # Top 10 mas desplazados + bottom 5 mas estables
+    n_top = min(10, n)
+    n_bot = min(5, n)
+    top_df = df_sorted.head(n_top)
+    bot_df = df_sorted.tail(n_bot)
+
+    def _make_rows(sub_df):
+        rows = []
+        colors = []
+        for _, row in sub_df.iterrows():
+            failed = bool(row.get('failed', False))
+            status = 'MOV' if failed else 'EST'
+            bg = '#FFCDD2' if failed else '#C8E6C9'
+            rows.append([
+                row['case_name'],
+                f"{row['dam_height']:.3f}",
+                f"{row['boulder_mass']:.2f}",
+                f"{row.get('boulder_rot_z', 0):.1f}",
+                f"{row['max_displacement']:.4f}",
+                f"{row.get('max_rotation', 0):.1f}",
+                f"{row.get('max_sph_force', 0):.1f}",
+                status,
+            ])
+            colors.append([bg] * len(cols))
+        return rows, colors
+
+    top_rows, top_colors = _make_rows(top_df)
+    bot_rows, bot_colors = _make_rows(bot_df)
+    sep_row = [['...'] * len(cols)]
+    sep_color = [['#E0E0E0'] * len(cols)]
+
+    # Combinar
+    all_rows = stats_rows + top_rows + sep_row + bot_rows
+    stats_colors = [['#E3F2FD'] * len(cols)] * 2
+    all_colors = stats_colors + top_colors + sep_color + bot_colors
+
+    n_rows = len(all_rows)
+    fig, ax = plt.subplots(figsize=(14, max(5, 0.42 * n_rows + 2)))
+    ax.axis('off')
+
+    table = ax.table(cellText=all_rows, colLabels=col_labels,
+                     cellColours=all_colors, loc='center',
                      cellLoc='center')
     table.auto_set_font_size(False)
     table.set_fontsize(7.5)
     table.scale(1, 1.4)
 
-    # Header
     for j in range(len(cols)):
         table[0, j].set_facecolor('#1565C0')
         table[0, j].set_text_props(color='white', fontweight='bold')
 
-    fig.suptitle(f'Resultados del estudio piloto ({len(df)} casos, dp=0.004)',
+    fig.suptitle(f'Resumen: {n} casos (top {n_top} + bottom {n_bot}, dp=0.004)',
                  fontsize=13, fontweight='bold', y=0.98)
     save(fig, 'fig07_tabla_resumen')
 
@@ -823,6 +859,409 @@ def fig14_resumen_ejecutivo(df, pkg):
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# FIGURAS — ANALISIS ESTADISTICO AVANZADO (8 figuras nuevas)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def fig15_heatmap_parametrico(df):
+    """Fig 15: Mapa parametrico — tamano proporcional al desplazamiento."""
+    feats = ['dam_height', 'boulder_mass', 'boulder_rot_z']
+    pairs = list(combinations(range(3), 2))
+
+    fig, axes = plt.subplots(1, 3, figsize=(16, 5))
+
+    for ax, (i, j) in zip(axes, pairs):
+        fi, fj = feats[i], feats[j]
+        disp = df['max_displacement']
+        dmax = disp.max() if disp.max() > 0 else 1
+        sizes = 30 + 250 * (disp / dmax)
+        sc = ax.scatter(df[fi], df[fj], c=disp, cmap='RdYlGn_r',
+                        s=sizes, edgecolors='white', linewidths=0.5,
+                        alpha=0.85, zorder=5)
+        ax.set_xlabel(FEAT_LABELS[fi])
+        ax.set_ylabel(FEAT_LABELS[fj])
+
+    plt.colorbar(sc, ax=axes[-1], label='Desplazamiento max [m]', shrink=0.85)
+    fig.suptitle(f'Mapa parametrico: {len(df)} simulaciones (tamano ~ desplazamiento)',
+                 fontsize=12, fontweight='bold', y=1.02)
+    fig.tight_layout()
+    save(fig, 'fig15_heatmap_parametrico')
+
+
+def fig16_boxplots_por_parametro(df):
+    """Fig 16: Boxplots de desplazamiento por quintiles de cada parametro."""
+    feats = ['dam_height', 'boulder_mass', 'boulder_rot_z']
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5.5))
+
+    for ax, feat in zip(axes, feats):
+        n_bins = 5
+        bins = np.linspace(df[feat].min() - 1e-9, df[feat].max() + 1e-9, n_bins + 1)
+        labels_bin = []
+        data_groups = []
+        for k in range(n_bins):
+            mask = (df[feat] >= bins[k]) & (df[feat] < bins[k + 1])
+            vals = df.loc[mask, 'max_displacement'].values
+            if len(vals) > 0:
+                data_groups.append(vals)
+                mid = (bins[k] + bins[k + 1]) / 2
+                labels_bin.append(f'{mid:.2f}')
+
+        if not data_groups:
+            continue
+
+        color = FEAT_COLORS[feat]
+        bp = ax.boxplot(data_groups, labels=labels_bin, patch_artist=True,
+                        widths=0.6, showfliers=True,
+                        flierprops=dict(marker='o', markersize=4, alpha=0.5))
+        for patch in bp['boxes']:
+            patch.set_facecolor(color)
+            patch.set_alpha(0.5)
+        for median in bp['medians']:
+            median.set_color('black')
+            median.set_linewidth(2)
+
+        # Overlay puntos individuales con jitter
+        jitter_rng = np.random.default_rng(42)
+        for k, vals in enumerate(data_groups):
+            x_jitter = jitter_rng.normal(k + 1, 0.08, len(vals))
+            ax.scatter(x_jitter, vals, c=color, s=15, alpha=0.4, zorder=5)
+
+        ax.set_xlabel(FEAT_LABELS[feat])
+        ax.set_ylabel('Desplazamiento max [m]')
+
+    fig.suptitle(f'Distribucion del desplazamiento por rango de parametros ({len(df)} casos)',
+                 fontsize=13, fontweight='bold', y=1.02)
+    fig.tight_layout()
+    save(fig, 'fig16_boxplots_por_parametro')
+
+
+def fig17_matriz_correlacion(df):
+    """Fig 17: Heatmap de correlacion entre todas las variables."""
+    cols_order = ['dam_height', 'boulder_mass', 'boulder_rot_z',
+                  'max_displacement', 'max_rotation', 'max_velocity',
+                  'max_sph_force', 'max_contact_force',
+                  'max_flow_velocity', 'max_water_height']
+    labels_map = {
+        'dam_height': '$h$ [m]',
+        'boulder_mass': '$M$ [kg]',
+        'boulder_rot_z': r'$\theta_z$ [deg]',
+        'max_displacement': 'Desplaz.',
+        'max_rotation': 'Rotacion',
+        'max_velocity': 'Velocidad',
+        'max_sph_force': '$F_{SPH}$',
+        'max_contact_force': '$F_{cont}$',
+        'max_flow_velocity': '$V_{flujo}$',
+        'max_water_height': '$H_{agua}$',
+    }
+
+    avail = [c for c in cols_order if c in df.columns and df[c].notna().sum() > 2]
+    if len(avail) < 3:
+        print("  [SKIP] fig17 — insuficientes columnas")
+        return
+
+    corr = df[avail].corr()
+    nc = len(avail)
+
+    fig, ax = plt.subplots(figsize=(max(6, nc * 0.9), max(5, nc * 0.8)))
+    im = ax.imshow(corr.values, cmap='RdBu_r', vmin=-1, vmax=1, aspect='equal')
+
+    labels_show = [labels_map.get(c, c) for c in avail]
+    ax.set_xticks(range(nc))
+    ax.set_yticks(range(nc))
+    ax.set_xticklabels(labels_show, rotation=45, ha='right', fontsize=8)
+    ax.set_yticklabels(labels_show, fontsize=8)
+
+    for i_row in range(nc):
+        for j_col in range(nc):
+            val = corr.values[i_row, j_col]
+            color = 'white' if abs(val) > 0.55 else 'black'
+            fw = 'bold' if abs(val) > 0.7 else 'normal'
+            ax.text(j_col, i_row, f'{val:.2f}', ha='center', va='center',
+                    color=color, fontsize=7, fontweight=fw)
+
+    # Linea divisoria entradas / salidas
+    n_inputs = sum(1 for c in avail if c in ('dam_height', 'boulder_mass', 'boulder_rot_z'))
+    if 0 < n_inputs < nc:
+        ax.axhline(n_inputs - 0.5, color='black', lw=1.5)
+        ax.axvline(n_inputs - 0.5, color='black', lw=1.5)
+
+    plt.colorbar(im, ax=ax, label='Coeficiente de Pearson', shrink=0.85)
+    ax.set_title('Matriz de correlacion: parametros de entrada y metricas de salida',
+                 fontsize=11, fontweight='bold', pad=15)
+    fig.tight_layout()
+    save(fig, 'fig17_matriz_correlacion')
+
+
+def fig18_violin_por_regimen(df):
+    """Fig 18: Violines comparando metricas entre estable vs movimiento."""
+    moved = df['failed'].astype(bool) if 'failed' in df else df.get('moved', pd.Series(dtype=bool)).astype(bool)
+    if moved.sum() == 0 or (~moved).sum() == 0:
+        print("  [SKIP] fig18 — todos los casos son del mismo regimen")
+        return
+
+    metrics = [
+        ('max_displacement', 'Desplazamiento [m]'),
+        ('max_rotation', 'Rotacion max [deg]'),
+        ('max_velocity', 'Velocidad max [m/s]'),
+        ('max_sph_force', 'Fuerza SPH max [N]'),
+    ]
+    avail = [(m, l) for m, l in metrics if m in df.columns]
+
+    fig, axes = plt.subplots(1, len(avail), figsize=(4.5 * len(avail), 5))
+    if len(avail) == 1:
+        axes = [axes]
+
+    for ax, (metric, label) in zip(axes, avail):
+        d_stable = df.loc[~moved, metric].dropna().values
+        d_moved = df.loc[moved, metric].dropna().values
+
+        parts = ax.violinplot([d_stable, d_moved], showmeans=True, showmedians=True)
+        parts['bodies'][0].set_facecolor(G)
+        parts['bodies'][0].set_alpha(0.5)
+        if len(parts['bodies']) > 1:
+            parts['bodies'][1].set_facecolor(R)
+            parts['bodies'][1].set_alpha(0.5)
+
+        ax.set_xticks([1, 2])
+        ax.set_xticklabels([f'Estable\n(n={len(d_stable)})',
+                            f'Movimiento\n(n={len(d_moved)})'])
+        ax.set_ylabel(label)
+
+    fig.suptitle(f'Comparacion por regimen: {(~moved).sum()} estables vs {moved.sum()} movimiento',
+                 fontsize=13, fontweight='bold', y=1.02)
+    fig.tight_layout()
+    save(fig, 'fig18_violin_por_regimen')
+
+
+def fig19_energia_adimensional(df):
+    """Fig 19: Analisis adimensional — numero de estabilidad y densidad."""
+    rho_w = 1000.0
+    g = 9.81
+    mu = 0.6
+    V_boulder = 0.00053023  # m3 (BLIR3.stl a escala 0.04)
+
+    E_wave = 0.5 * rho_w * g * df['dam_height'] ** 2
+    R_grav = df['boulder_mass'] * g * mu
+    stab_num = E_wave / R_grav
+    density = df['boulder_mass'] / V_boulder
+
+    moved = df['failed'].astype(bool) if 'failed' in df else df['moved'].astype(bool)
+
+    fig, axes = plt.subplots(1, 3, figsize=(16, 5))
+
+    # (a) Numero de estabilidad vs desplazamiento
+    ax = axes[0]
+    ax.scatter(stab_num[~moved], df.loc[~moved, 'max_displacement'],
+               c=G, s=50, edgecolors='white', linewidths=0.5, label='Estable')
+    ax.scatter(stab_num[moved], df.loc[moved, 'max_displacement'],
+               c=R, s=50, edgecolors='white', linewidths=0.5,
+               label='Movimiento', marker='^')
+    ax.set_xlabel(r'$\Pi = \frac{\rho_w g h^2}{2 M g \mu}$ [-]')
+    ax.set_ylabel('Desplazamiento max [m]')
+    ax.set_title('(a) Parametro de estabilidad')
+    ax.legend(fontsize=8)
+
+    # (b) Densidad boulder vs desplazamiento (color = h)
+    ax = axes[1]
+    sc = ax.scatter(density, df['max_displacement'], c=df['dam_height'],
+                    cmap='coolwarm', s=50, edgecolors='white', linewidths=0.5)
+    plt.colorbar(sc, ax=ax, label='$h$ [m]', shrink=0.85)
+    ax.set_xlabel(r'Densidad boulder $\rho_b$ [kg/m$^3$]')
+    ax.set_ylabel('Desplazamiento max [m]')
+    ax.set_title('(b) Efecto de densidad')
+
+    # (c) h vs desplazamiento (color = masa)
+    ax = axes[2]
+    sc = ax.scatter(df['dam_height'], df['max_displacement'], c=df['boulder_mass'],
+                    cmap='RdYlBu_r', s=50, edgecolors='white', linewidths=0.5)
+    plt.colorbar(sc, ax=ax, label='$M$ [kg]', shrink=0.85)
+    ax.set_xlabel(FEAT_LABELS['dam_height'])
+    ax.set_ylabel('Desplazamiento max [m]')
+    ax.set_title('(c) Altura vs respuesta')
+
+    fig.suptitle('Analisis fisico: parametros adimensionales y densidad',
+                 fontsize=13, fontweight='bold', y=1.02)
+    fig.tight_layout()
+    save(fig, 'fig19_energia_adimensional')
+
+
+def fig20_dependencia_parcial(pkg, df):
+    """Fig 20: Dependencia parcial — efecto marginalizado de cada parametro via GP."""
+    if pkg is None:
+        print("  [SKIP] fig20 — no hay GP entrenado")
+        return
+
+    feats = pkg['features']
+    n_mc = 500
+    rng = np.random.default_rng(42)
+
+    fig, axes = plt.subplots(1, len(feats), figsize=(5.5 * len(feats), 5))
+    if len(feats) == 1:
+        axes = [axes]
+
+    for idx, (ax, feat) in enumerate(zip(axes, feats)):
+        x_line = np.linspace(df[feat].min(), df[feat].max(), 50)
+        pd_mean = np.zeros(50)
+        pd_lo = np.zeros(50)
+        pd_hi = np.zeros(50)
+
+        for k, x_val in enumerate(x_line):
+            X_mc = np.zeros((n_mc, len(feats)))
+            for j, f in enumerate(feats):
+                if j == idx:
+                    X_mc[:, j] = x_val
+                else:
+                    X_mc[:, j] = rng.uniform(df[f].min(), df[f].max(), n_mc)
+
+            y_pred, _ = predict_gp(pkg, X_mc)
+            pd_mean[k] = np.mean(y_pred)
+            pd_lo[k] = np.percentile(y_pred, 10)
+            pd_hi[k] = np.percentile(y_pred, 90)
+
+        color = FEAT_COLORS.get(feat, GR)
+        ax.plot(x_line, pd_mean, color=color, lw=2.5, label='Media marginal')
+        ax.fill_between(x_line, pd_lo, pd_hi, alpha=0.15, color=color, label='P10-P90')
+
+        # Rug plot
+        y_lo = ax.get_ylim()[0]
+        ax.plot(df[feat].values, np.full(len(df), y_lo), '|',
+                color='black', alpha=0.3, markersize=10)
+
+        ax.set_xlabel(FEAT_LABELS[feat])
+        ax.set_ylabel('Desplazamiento predicho [m]')
+        ax.legend(fontsize=8)
+
+    fig.suptitle('Dependencia Parcial: efecto marginalizado sobre GP',
+                 fontsize=13, fontweight='bold', y=1.02)
+    fig.tight_layout()
+    save(fig, 'fig20_dependencia_parcial')
+
+
+def fig21_dashboard_multioutput(df):
+    """Fig 21: Dashboard 2x3 — multiples metricas y parametros."""
+    moved = df['failed'].astype(bool) if 'failed' in df else df.get('moved', pd.Series(dtype=bool)).astype(bool)
+
+    fig, axes = plt.subplots(2, 3, figsize=(16, 10))
+
+    # Fila 1: Desplazamiento vs cada parametro
+    for j, feat in enumerate(['dam_height', 'boulder_mass', 'boulder_rot_z']):
+        ax = axes[0, j]
+        if (~moved).any():
+            ax.scatter(df.loc[~moved, feat], df.loc[~moved, 'max_displacement'],
+                       c=G, s=35, edgecolors='white', linewidths=0.5,
+                       label='Estable', alpha=0.8)
+        if moved.any():
+            ax.scatter(df.loc[moved, feat], df.loc[moved, 'max_displacement'],
+                       c=R, s=35, edgecolors='white', linewidths=0.5,
+                       label='Movimiento', marker='^', alpha=0.8)
+        ax.set_xlabel(FEAT_LABELS[feat])
+        ax.set_ylabel('Desplazamiento max [m]')
+        if j == 0:
+            ax.legend(fontsize=7)
+
+    # Fila 2: Otras metricas vs dam_height
+    other_metrics = [
+        ('max_rotation', 'Rotacion max [deg]'),
+        ('max_velocity', 'Velocidad max [m/s]'),
+        ('max_sph_force', 'Fuerza SPH max [N]'),
+    ]
+    for j, (metric, ylabel) in enumerate(other_metrics):
+        ax = axes[1, j]
+        if metric not in df.columns:
+            ax.set_visible(False)
+            continue
+        sc = ax.scatter(df['dam_height'], df[metric],
+                        c=df['boulder_mass'], cmap='RdYlBu_r',
+                        s=35, edgecolors='white', linewidths=0.5, alpha=0.8)
+        ax.set_xlabel(FEAT_LABELS['dam_height'])
+        ax.set_ylabel(ylabel)
+        if j == 2:
+            plt.colorbar(sc, ax=ax, label='$M$ [kg]', shrink=0.85)
+
+    axes[0, 1].set_title('Desplazamiento vs parametros', fontsize=11, fontweight='bold')
+    axes[1, 1].set_title('Metricas vs altura de columna', fontsize=11, fontweight='bold')
+    fig.suptitle(f'Dashboard: {len(df)} simulaciones SPH',
+                 fontsize=14, fontweight='bold', y=1.01)
+    fig.tight_layout()
+    save(fig, 'fig21_dashboard_multioutput')
+
+
+def fig22_altura_critica(df):
+    """Fig 22: Estimacion de altura critica de movimiento por rango de masa."""
+    moved = df['failed'].astype(bool) if 'failed' in df else df.get('moved', pd.Series(dtype=bool)).astype(bool)
+
+    n_bins_mass = 4
+    mass_bins = np.linspace(df['boulder_mass'].min() - 1e-9,
+                            df['boulder_mass'].max() + 1e-9, n_bins_mass + 1)
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5.5))
+    colors_bin = [B, R, P, O]
+
+    # (a) Respuesta por rango de masa
+    ax = axes[0]
+    for k in range(n_bins_mass):
+        mask = (df['boulder_mass'] >= mass_bins[k]) & (df['boulder_mass'] < mass_bins[k + 1])
+        sub = df[mask]
+        sub_moved = moved[mask]
+        mass_mid = (mass_bins[k] + mass_bins[k + 1]) / 2
+        c = colors_bin[k % len(colors_bin)]
+
+        if (~sub_moved).any():
+            ax.scatter(sub.loc[~sub_moved, 'dam_height'],
+                       sub.loc[~sub_moved, 'max_displacement'],
+                       c=c, s=40, marker='o', alpha=0.5, edgecolors='white', linewidths=0.5)
+        if sub_moved.any():
+            ax.scatter(sub.loc[sub_moved, 'dam_height'],
+                       sub.loc[sub_moved, 'max_displacement'],
+                       c=c, s=40, marker='^', alpha=0.8, edgecolors='white',
+                       linewidths=0.5, label=f'M~{mass_mid:.2f} kg (n={len(sub)})')
+
+    ax.set_xlabel(FEAT_LABELS['dam_height'])
+    ax.set_ylabel('Desplazamiento max [m]')
+    ax.set_title('(a) Respuesta por rango de masa')
+    ax.legend(fontsize=7, loc='upper left')
+
+    # (b) Altura critica estimada vs masa
+    ax = axes[1]
+    mass_centers = []
+    h_crit_vals = []
+    for k in range(n_bins_mass):
+        mask = (df['boulder_mass'] >= mass_bins[k]) & (df['boulder_mass'] < mass_bins[k + 1])
+        sub = df[mask]
+        sub_moved = moved[mask]
+        if sub_moved.sum() > 0:
+            h_min_moved = sub.loc[sub_moved, 'dam_height'].min()
+            mass_centers.append((mass_bins[k] + mass_bins[k + 1]) / 2)
+            h_crit_vals.append(h_min_moved)
+
+    if len(mass_centers) >= 2:
+        ax.plot(mass_centers, h_crit_vals, 'o-', color=R, lw=2, markersize=8,
+                label='$h_{crit}$ (min $h$ con movimiento)')
+        ax.fill_between(mass_centers, 0, h_crit_vals, alpha=0.1, color=G)
+        ax.fill_between(mass_centers, h_crit_vals,
+                        [max(h_crit_vals) * 1.3] * len(mass_centers),
+                        alpha=0.1, color=R)
+        ax.text(mass_centers[0], min(h_crit_vals) * 0.5, 'ESTABLE',
+                fontsize=12, color=G, fontweight='bold', alpha=0.7)
+        ax.text(mass_centers[-1], max(h_crit_vals) * 1.1, 'MOVIMIENTO',
+                fontsize=12, color=R, fontweight='bold', alpha=0.7, ha='right')
+        ax.legend(fontsize=8)
+    elif mass_centers:
+        ax.scatter(mass_centers, h_crit_vals, c=R, s=100, zorder=5)
+        ax.set_title('(b) Pocos datos para frontera')
+
+    ax.set_xlabel(FEAT_LABELS['boulder_mass'])
+    ax.set_ylabel('Altura critica $h_{crit}$ [m]')
+    if not ax.get_title():
+        ax.set_title('(b) Frontera de movimiento incipiente')
+
+    fig.suptitle('Analisis de altura critica de movimiento',
+                 fontsize=13, fontweight='bold', y=1.02)
+    fig.tight_layout()
+    save(fig, 'fig22_altura_critica')
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # PIPELINE PRINCIPAL
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -838,8 +1277,8 @@ def main(synthetic: bool = False):
     df = load_data(synthetic)
     pkg = load_gp()
 
-    # Datos crudos (siempre se pueden generar)
-    print("Figuras de datos crudos:")
+    # BLOQUE 1: Datos crudos (7 figuras)
+    print("BLOQUE 1: Datos crudos (7 figuras)")
     fig01_lhs_cobertura(df)
     fig02_distribucion_resultados(df)
     fig03_scatter_matrix(df)
@@ -848,24 +1287,32 @@ def main(synthetic: bool = False):
     fig06_flujo_vs_desplazamiento(df)
     fig07_tabla_resumen(df)
 
-    # GP surrogate
-    print("\nFiguras GP surrogate:")
+    # BLOQUE 2: GP surrogate (3 figuras)
+    print("\nBLOQUE 2: GP surrogate (3 figuras)")
     fig08_gp_superficie_3pares(pkg, df)
     fig09_gp_slices_detallados(pkg, df)
     fig10_gp_validacion_loo(pkg, df)
 
-    # UQ / Monte Carlo / Sobol
-    print("\nFiguras UQ:")
+    # BLOQUE 3: UQ / Monte Carlo / Sobol (4 figuras)
+    print("\nBLOQUE 3: UQ / Monte Carlo / Sobol (4 figuras)")
     fig11_mc_completo(pkg, df)
     fig12_sobol_completo(pkg, df)
     fig13_frontera_detallada(pkg, df)
-
-    # Resumen
-    print("\nResumen ejecutivo:")
     fig14_resumen_ejecutivo(df, pkg)
 
+    # BLOQUE 4: Analisis estadistico avanzado (8 figuras)
+    print("\nBLOQUE 4: Analisis estadistico avanzado (8 figuras)")
+    fig15_heatmap_parametrico(df)
+    fig16_boxplots_por_parametro(df)
+    fig17_matriz_correlacion(df)
+    fig18_violin_por_regimen(df)
+    fig19_energia_adimensional(df)
+    fig20_dependencia_parcial(pkg, df)
+    fig21_dashboard_multioutput(df)
+    fig22_altura_critica(df)
+
     print(f"\n{'='*60}")
-    print(f"  {14} FIGURAS GENERADAS")
+    print(f"  22 FIGURAS GENERADAS")
     print(f"  {OUT}")
     print(f"{'='*60}")
 
