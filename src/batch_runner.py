@@ -41,35 +41,19 @@ CLEANUP_EXTENSIONS = {'.bi4', '.vtk', '.bt4'}
 # Extensiones de archivos a CONSERVAR siempre
 KEEP_EXTENSIONS = {'.csv', '.xml', '.stl', '.txt', '.json'}
 
-# Timeout adaptativo por dp (basado en estudio de convergencia, RTX 5090)
-# Incluye factor de seguridad 1.5x sobre tiempos medidos
-TIMEOUT_BY_DP = {
-    0.020: 1200,     #  20 min (medido: 13 min)
-    0.015: 1200,     #  20 min (medido: 12 min)
-    0.010: 2400,     #  40 min (medido: 24 min)
-    0.008: 3600,     #  60 min (medido: 30 min)
-    0.005: 10800,    #  3h     (medido: 118 min)
-    0.004: 28800,    #  8h     (medido: 260 min)
-    0.003: 86400,    # 24h     (medido: 812 min)
-}
+# Sin timeout — dejar que cada caso corra hasta que termine.
+# La RTX 5090 no se comparte, no hay razon para abortar por tiempo.
+# Si algo se cuelga de verdad, el usuario mata el proceso manualmente.
+TIMEOUT_BY_DP = None  # No se usa
 
 
 def get_timeout_for_dp(dp: float, config: dict) -> int:
-    """Retorna timeout adaptativo segun dp. Usa tabla medida o config como fallback."""
-    # Override explicito en config tiene prioridad
+    """Retorna timeout para subprocess. None = sin limite."""
     override = config.get('defaults', {}).get('timeout_seconds_override')
     if override:
         return int(override)
-    # Buscar en tabla medida
-    if dp in TIMEOUT_BY_DP:
-        return TIMEOUT_BY_DP[dp]
-    # Interpolar: buscar dp mas cercano mayor
-    known = sorted(TIMEOUT_BY_DP.keys(), reverse=True)
-    for known_dp in known:
-        if dp >= known_dp:
-            return TIMEOUT_BY_DP[known_dp]
-    # Fallback: el mayor timeout conocido
-    return max(TIMEOUT_BY_DP.values())
+    # Sin timeout — dejar correr indefinidamente
+    return None
 
 
 def load_config(config_path: Path) -> dict:
