@@ -516,6 +516,10 @@ El cronograma original (4 sprints en febrero) tiene el **1 de marzo** como hito.
 ### Sprint 4 — ML y Presentación (post-hito de marzo, probablemente)
 
 - [ ] `ml_surrogate.py`: entrenar GP sobre datos reales
+- [ ] Validación GP: Leave-One-Out cross-validation, error < 5%
+- [ ] Monte Carlo sobre GP: 10,000 muestras → distribuciones + CI 95%
+- [ ] Índices de Sobol: identificar parámetros dominantes
+- [ ] Frontera de estabilidad probabilística (no determinista)
 - [ ] Visualización de la frontera de estabilidad
 - [ ] Comparación con fórmulas empíricas (Nandasena, etc.)
 - [ ] Documentación para el Dr. Moris

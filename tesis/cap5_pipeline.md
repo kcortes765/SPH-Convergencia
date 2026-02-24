@@ -274,3 +274,41 @@ Los archivos `.bi4` (partículas binarias) son el principal consumidor de disco.
 | Modelo surrogate | scikit-learn (GP) | ≥ 1.3 |
 | Visualización | matplotlib | ≥ 3.7 |
 | Lenguaje | Python | 3.10+ |
+
+---
+
+## 5.12 Cuantificación de Incertidumbre (UQ)
+
+### 5.12.1 Motivación
+
+Los resultados del GP surrogate son predicciones puntuales. Sin embargo, los parámetros de entrada tienen incertidumbre inherente: la masa de un boulder no se conoce con precisión exacta, la altura del tsunami varía, la fricción depende de la rugosidad local. Para transformar las predicciones en resultados con confianza estadística, se emplea Monte Carlo sobre el surrogate.
+
+### 5.12.2 Monte Carlo sobre el GP
+
+1. Se definen distribuciones de probabilidad para cada parámetro de entrada (ej. masa ~ Normal(150, 15), altura ~ Normal(0.3, 0.06))
+2. Se generan 10,000 muestras aleatorias del espacio de parámetros
+3. Cada muestra se evalúa en el GP surrogate (milisegundos por evaluación)
+4. Se construyen distribuciones de los outputs: desplazamiento, rotación, fuerza
+5. Se calculan intervalos de confianza al 95% y probabilidades de movimiento incipiente
+
+**Justificación computacional:** Monte Carlo directo sobre DualSPHysics requeriría 10,000 × 4 horas = 4.5 años de cómputo. Sobre el GP surrogate, las 10,000 evaluaciones toman ~10 segundos.
+
+### 5.12.3 Análisis de Sensibilidad Global (Índices de Sobol)
+
+Los índices de Sobol (Sobol', 2001) descomponen la varianza total de una salida en contribuciones de cada parámetro:
+
+- **Índice de primer orden (S_i):** fracción de varianza explicada por el parámetro i actuando solo
+- **Índice de orden total (ST_i):** fracción de varianza explicada por el parámetro i incluyendo interacciones con otros
+
+Se calculan mediante el esquema de muestreo de Saltelli (2002) sobre el GP surrogate. Esto identifica qué parámetro domina la incertidumbre del resultado, guiando tanto la interpretación física como futuras campañas experimentales.
+
+### 5.12.4 Precedente Metodológico
+
+Este pipeline (simulación SPH → GP emulador → Monte Carlo → Sobol) sigue el enfoque de Salmanidou et al. (2017, 2020), quienes lo aplicaron a cuantificación de incertidumbre en oleaje por deslizamiento de tierra. La diferencia es la aplicación al transporte de bloques costeros con geometría irregular.
+
+### Referencias UQ
+
+- Oakley, J.E. & O'Hagan, A. (2004). *JRSS-B*, 66(3), 751-769. DOI: 10.1111/j.1467-9868.2004.05304.x
+- Sobol', I.M. (2001). *Math. Comput. Simul.*, 55(1-3), 271-280. DOI: 10.1016/S0378-4754(00)00270-6
+- Saltelli, A. (2002). *Comput. Phys. Commun.*, 145(2), 280-297. DOI: 10.1016/S0010-4655(02)00280-1
+- Salmanidou, D.M., et al. (2020). *Water*, 12(2), 416. DOI: 10.3390/w12020416

@@ -1,7 +1,7 @@
 # Defensa Técnica — SPH-IncipientMotion
 
 > Documento consolidado de sustento científico, técnico y metodológico.
-> Última actualización: 2026-02-23
+> Última actualización: 2026-02-24
 
 ---
 
@@ -50,6 +50,7 @@ Este trabajo reemplaza esa simplificación con:
 | Render fotorrealista             | 🔄 Parcial             | VTK→PLY completado, Blender pendiente                               |
 | Barrido paramétrico             | ⏳ Pendiente           | Esperando rangos de Dr. Moris                                        |
 | Modelo ML surrogate              | ⏳ Pendiente           | Requiere datos del barrido                                           |
+| UQ + Monte Carlo + Sobol         | ⏳ Pendiente           | Sobre GP surrogate entrenado                                         |
 
 ---
 
@@ -502,12 +503,47 @@ Proceso:
 ### Módulo 4: ML Surrogate (`ml_surrogate.py`)
 
 **Entrada**: Tabla de resultados en SQLite (del barrido paramétrico)
-**Salida**: Modelo Gaussian Process entrenado
+**Salida**: Modelo Gaussian Process entrenado + análisis de incertidumbre
 
 - `GaussianProcessRegressor` de scikit-learn
 - Inputs: masa, altura de ola, ángulo, descriptores de forma (ratios de ejes, esfericidad de Wadell)
-- Outputs: movimiento sí/no, desplazamiento máximo, fuerza máxima
+- Outputs: desplazamiento máximo, fuerza máxima, probabilidad de movimiento
 - **Estado**: Pendiente — requiere datos del barrido paramétrico
+
+### Fase 5: Cuantificación de Incertidumbre (UQ)
+
+Una vez entrenado el GP surrogate, se extiende el análisis con:
+
+#### Monte Carlo sobre el surrogate
+
+Las simulaciones SPH son deterministas, pero los parámetros de entrada tienen **incertidumbre real**: la masa de un boulder no se conoce con precisión exacta, la altura del tsunami varía, la fricción depende de la rugosidad local. Propagar esta incertidumbre directamente a través de DualSPHysics es computacionalmente inviable (10,000 simulaciones × 4 horas = 4.5 años). La solución es evaluar el GP surrogate — que predice en milisegundos — con 10,000 muestras aleatorias generadas por Monte Carlo.
+
+**Resultado**: En lugar de "el boulder se desplaza 1.6m", se obtiene "el boulder se desplaza 1.6m ± 0.3m (95% CI)" con probabilidad de movimiento incipiente cuantificada.
+
+> **Referencia**: Oakley, J.E. & O'Hagan, A. (2004). Probabilistic sensitivity analysis of complex models: a Bayesian approach. *JRSS-B*, 66(3), 751-769. DOI: 10.1111/j.1467-9868.2004.05304.x
+
+#### Análisis de sensibilidad: índices de Sobol
+
+Los índices de Sobol descomponen la varianza total del resultado en contribuciones de cada parámetro de entrada. Se calculan dos tipos:
+
+- **Primer orden (S_i)**: efecto directo de cada parámetro aislado
+- **Orden total (ST_i)**: efecto del parámetro incluyendo interacciones
+
+Esto responde la pregunta clave para el ingeniero: **¿qué parámetro influye más en el movimiento del boulder?** Si la altura de ola domina (ej. ST=0.62), entonces mejorar la medición de masa aporta poco a la predicción.
+
+El cálculo se realiza con el esquema de muestreo de Saltelli (2002) sobre el GP surrogate, y es computacionalmente trivial una vez entrenado el modelo.
+
+> **Sobol', I.M. (2001).** Global sensitivity indices for nonlinear mathematical models. *Mathematics and Computers in Simulation*, 55(1-3), 271-280. DOI: 10.1016/S0378-4754(00)00270-6
+
+> **Saltelli, A. (2002).** Making best use of model evaluations to compute sensitivity indices. *Computer Physics Communications*, 145(2), 280-297. DOI: 10.1016/S0010-4655(02)00280-1
+
+#### Precedente directo en la literatura
+
+Este pipeline (simulación física → GP emulador → Monte Carlo UQ → índices de Sobol) tiene precedente directo:
+
+> **Salmanidou, D.M., Heidarzadeh, M., & Guillas, S. (2020).** Uncertainty Quantification of Landslide Generated Waves Using Gaussian Process Emulation and Variance-Based Sensitivity Analysis. *Water*, 12(2), 416. DOI: 10.3390/w12020416
+
+Salmanidou et al. usaron exactamente este enfoque (SPH de tsunami + GP emulador + Sobol) para cuantificar incertidumbre en oleaje por deslizamiento de tierra. La diferencia es que esta tesis aplica el método al **transporte de bloques costeros con geometría irregular**, lo cual no se ha reportado.
 
 ### Orquestador de producción (`run_production.py`)
 
@@ -548,17 +584,22 @@ Estos rangos deben ser **físicamente representativos** de escenarios reales cos
 4. python run_production.py --prod           → ejecuta 50 simulaciones (~200 hrs GPU)
 5. ETL automático → SQLite con resultados
 6. Entrenar GP surrogate → modelo predictivo
-7. Análisis + capítulos finales de tesis
+7. Monte Carlo (10,000 muestras) sobre GP → distribuciones + intervalos de confianza
+8. Índices de Sobol → identificar parámetros dominantes
+9. Análisis + capítulos finales de tesis
 ```
 
 ### Entregables finales esperados
 
-| Entregable                 | Descripción                                                     |
-| -------------------------- | ---------------------------------------------------------------- |
-| Modelo GP entrenado        | Predice movimiento sin simular                                   |
-| Curvas de umbral           | Desplazamiento vs. parámetros (masa, ola, ángulo)              |
-| Comparación con Nandasena | GP vs. fórmula empírica → cuánto mejora usar geometría real |
-| Render fotorrealista       | Visualización del impacto tsunami-boulder                       |
+| Entregable                      | Descripción                                                                     |
+| ------------------------------- | ------------------------------------------------------------------------------- |
+| Modelo GP entrenado             | Predice movimiento sin simular                                                   |
+| Curvas de umbral                | Desplazamiento vs. parámetros (masa, ola, ángulo)                              |
+| Distribuciones con UQ           | Intervalos de confianza (95% CI) para cada predicción                           |
+| Índices de Sobol                | Ranking de importancia de parámetros (cuál domina la incertidumbre)           |
+| Frontera de estabilidad         | Probabilística, no determinista (ej. "P(movimiento) > 95% si h > 0.35m")     |
+| Comparación con Nandasena      | GP vs. fórmula empírica → cuánto mejora usar geometría real                  |
+| Render fotorrealista            | Visualización del impacto tsunami-boulder                                       |
 
 ---
 
@@ -582,6 +623,20 @@ Estos rangos deben ser **físicamente representativos** de escenarios reales cos
 | 12 | Imamura, F., et al. (2008). —                                                                                                                         | —                              | Dam-break como proxy tsunami              |
 | 13 | Nandasena, N.A.K., et al. —                                                                                                                           | —                              | Fórmulas empíricas de boulder transport |
 | 14 | Engel, M. & May, S.M. —                                                                                                                               | —                              | Fórmulas empíricas de boulder transport |
+| 15 | Rasmussen, C.E. & Williams, C.K.I. (2006). *Gaussian Processes for Machine Learning.* MIT Press.                                                     | gaussianprocess.org/gpml        | Fundamento teórico del GP surrogate      |
+| 16 | Forrester, A.I.J., et al. (2008). *Engineering Design via Surrogate Modelling.* Wiley.                                                               | 10.1002/9780470770801            | Guía práctica LHS → GP → explotación |
+| 17 | Loeppky, J.L., et al. (2009). Choosing the Sample Size of a Computer Experiment. *Technometrics*, 51(4), 366-376.                                    | 10.1198/TECH.2009.08040          | Regla 10d para tamaño de muestra GP    |
+| 18 | McKay, M.D., et al. (1979). A Comparison of Three Methods for Selecting Values. *Technometrics*, 21(2), 239-245.                                     | 10.1080/00401706.1979.10489755   | Paper original de LHS                     |
+| 19 | Helton, J.C. & Davis, F.J. (2003). Latin hypercube sampling and propagation of uncertainty. *RESS*, 81(1), 23-69.                                    | 10.1016/S0951-8320(03)00058-9    | LHS para propagación de incertidumbre   |
+| 20 | Sobol', I.M. (2001). Global sensitivity indices for nonlinear mathematical models. *Math. Comput. Simul.*, 55(1-3), 271-280.                         | 10.1016/S0378-4754(00)00270-6    | Índices de Sobol (definición)           |
+| 21 | Saltelli, A. (2002). Making best use of model evaluations to compute sensitivity indices. *Comput. Phys. Commun.*, 145(2), 280-297.                  | 10.1016/S0010-4655(02)00280-1    | Algoritmo eficiente de Sobol              |
+| 22 | Saltelli, A., et al. (2008). *Global Sensitivity Analysis: The Primer.* Wiley.                                                                        | 10.1002/9780470725184            | Libro referencia análisis sensibilidad   |
+| 23 | Oakley, J.E. & O'Hagan, A. (2004). Probabilistic sensitivity analysis of complex models. *JRSS-B*, 66(3), 751-769.                                  | 10.1111/j.1467-9868.2004.05304.x | Monte Carlo + GP para UQ                  |
+| 24 | Salmanidou, D.M., et al. (2020). UQ of Landslide Waves Using GP Emulation and Sobol. *Water*, 12(2), 416.                                           | 10.3390/w12020416                | **Precedente directo** (SPH+GP+Sobol)  |
+| 25 | Salmanidou, D.M., et al. (2017). Statistical emulation of landslide-induced tsunamis. *Proc. Royal Society A*, 473(2200).                            | 10.1098/rspa.2017.0026           | GP emulador para tsunami                   |
+| 26 | Sudret, B. (2008). Global sensitivity analysis using polynomial chaos expansions. *RESS*, 93(7), 964-979.                                             | 10.1016/j.ress.2007.04.002      | Alternativa PCE para sensibilidad          |
+| 27 | Oetjen, J., et al. (2021). Experiments on tsunami induced boulder transport: A review. *Earth-Science Reviews*, 220, 103714.                         | 10.1016/j.earscirev.2021.103714  | Review experimental boulder transport      |
+| 28 | Goto, K., et al. (2014). Boulder transport by the 2011 Great East Japan tsunami. *Marine Geology*, 346, 292-309.                                     | 10.1016/j.margeo.2013.09.015    | Datos de campo Tohoku 2011                 |
 
 ### Recursos técnicos (no citables pero consultados)
 
@@ -647,6 +702,18 @@ La diferencia de 19 días de cómputo por una mejora de 3.9% en desplazamiento n
 ### "¿Qué pasa si los rangos del Dr. Moris son muy distintos a lo probado?"
 
 El estudio de convergencia se realizó con una configuración representativa (dam-break con boulder en playa inclinada). Si los rangos paramétricos implican condiciones muy diferentes (ej. olas mucho más grandes, boulders mucho más masivos), podría ser necesario verificar que dp=0.004 sigue siendo adecuado para esas condiciones. Sin embargo, la convergencia de malla tiende a ser conservadora: si converge para un caso, generalmente converge para casos similares o menos exigentes.
+
+### "¿Por qué Monte Carlo sobre el surrogate y no sobre la simulación directa?"
+
+Porque cada simulación SPH toma ~4 horas en GPU. Para obtener distribuciones estadísticas confiables se necesitan miles de evaluaciones (típicamente 10,000+). Monte Carlo directo sobre DualSPHysics tomaría 40,000 horas (~4.5 años de cómputo continuo). El GP surrogate evalúa en milisegundos, permitiendo 10,000 muestras en ~10 segundos. Esta estrategia (simulación costosa → surrogate → MC sobre surrogate) es estándar en ingeniería computacional y tiene precedente directo en simulación de tsunami (Salmanidou et al., 2017, 2020).
+
+### "¿Qué son los índices de Sobol y por qué importan?"
+
+Los índices de Sobol descomponen la varianza total de una salida (ej. desplazamiento del boulder) en contribuciones atribuibles a cada parámetro de entrada. Si el índice de Sobol de la altura de ola es 0.62, significa que el 62% de la incertidumbre en el resultado proviene de no conocer exactamente la altura. Esto tiene implicancia directa para el ingeniero: si se desea reducir la incertidumbre de la predicción, se debe medir mejor el parámetro con mayor índice. Es análisis de sensibilidad global, no local (no depende de un punto de operación específico).
+
+### "¿50 simulaciones son suficientes para entrenar el GP?"
+
+Sí. La regla práctica de **Loeppky et al. (2009)** establece que se necesitan ~10×d puntos de entrenamiento, donde d es el número de variables de entrada. Con 5 variables (masa, altura, ángulo, fricción, forma) → 50 simulaciones es el mínimo recomendado. Además, el GP provee intervalos de confianza en sus predicciones: si la incertidumbre es alta en alguna zona del espacio paramétrico, se pueden agregar simulaciones adicionales allí (*active learning*, Jones et al., 1998).
 
 ### "¿Qué aporta esta tesis respecto a Nandasena?"
 

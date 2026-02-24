@@ -276,6 +276,8 @@ El pipeline se implementa en Python y consta de 4 módulos desacoplados:
 
 **Módulo 4 — ML Surrogate:** Entrena un regresor de procesos gaussianos (`GaussianProcessRegressor`, scikit-learn) sobre los resultados de la campaña paramétrica. Kernel Matérn (ν = 2.5) con validación cruzada Leave-One-Out.
 
+**Fase 5 — Cuantificación de Incertidumbre (UQ):** Una vez entrenado el GP surrogate, se propagan las incertidumbres de los parámetros de entrada mediante Monte Carlo (10,000 muestras evaluadas sobre el GP en segundos). Se calculan intervalos de confianza al 95% y se realiza análisis de sensibilidad global mediante índices de Sobol (Sobol', 2001; Saltelli, 2002), identificando qué parámetros dominan la variabilidad del resultado. Este enfoque sigue el precedente de Salmanidou et al. (2020), quienes aplicaron GP + Monte Carlo + Sobol a simulaciones SPH de tsunami.
+
 ### 3.7.2 Diseño de Experimentos
 
 La campaña paramétrica emplea Muestreo por Hipercubo Latino (LHS) con `scipy.stats.qmc.LatinHypercube` (semilla = 42) para distribuir uniformemente los casos en el espacio de parámetros.
