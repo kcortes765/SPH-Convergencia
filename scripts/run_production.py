@@ -279,8 +279,8 @@ def run_production(args):
                 cr = result['result']
                 logger.info(f"  OK ({dur_min:.1f}min, disp={cr.max_displacement:.3f}m)")
 
-                # Notificar cada 10 casos
-                if status['completed'] % 10 == 0:
+                # Notificar cada caso
+                if True:
                     elapsed = (datetime.now() - campaign_start).total_seconds()
                     eta_str = status.get('eta_human', '?')
                     notify(
