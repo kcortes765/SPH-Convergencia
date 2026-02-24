@@ -1,0 +1,2 @@
+case_id,dam_height,boulder_mass,boulder_rot_z,dp,max_displacement,max_rotation,max_velocity,max_sph_force,max_contact_force,max_flow_velocity,max_water_height,failed,duration_s,source
+lhs_001_old,0.2929,1.4525,53.2273,0.004,2.8393,143.97,0.9616,21.2686,8733.8734,1.5258,0.1669,True,15925.3,WS RTX5090 matrix=LHS100 (pre-redesign)

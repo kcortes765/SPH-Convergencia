@@ -1,163 +1,131 @@
 # RETOMAR.md — SPH-IncipientMotion
-> Ultima actualizacion: 2026-02-24 (sesion 11)
+> Ultima actualizacion: 2026-02-24 (sesion 14)
 
 ## Estado Actual
-**Codebase reorganizada. Tesis en standby esperando Dr. Moris.**
+**50 casos LHS corriendo en WS (RTX 5090). Screening de sensibilidad con 1 forma (BLIR3). ~9.4 dias.**
 
 ## TAREA INMEDIATA AL RETOMAR
-1. **Esperar respuesta Dr. Moris** (email enviado 2026-02-20) con rangos parametricos
-2. **Cuando responda**: editar `config/param_ranges.json` y lanzar produccion
-3. **Render Blender pendiente**: agua PLY no se importo en WS, verificar en consola de Blender
-4. **Revisar DEFENSA_TECNICA.md** antes de reunion con profesor
 
-## Estructura del Proyecto (reorganizada sesion 11)
+### Si las simulaciones terminaron (o hay >= 30 casos):
+1. **Descargar results.sqlite desde WS** (o copiar CSVs procesados)
+2. **Correr analisis completo:**
+   ```bash
+   python scripts/analisis_completo.py --validar
+   ```
+   Esto genera **31 figuras** automaticamente:
+   - 3 figuras GP (data/figuras_ml/)
+   - 6 figuras UQ (data/figuras_uq/)
+   - 22 figuras piloto (data/figuras_piloto/)
+   - Validacion contra lhs_001_old
+3. **Revisar Sobol:** si rot_z contribuye <5%, se puede fijar para estudio multi-forma
+4. **Escribir Cap. 3 de tesis:** Screening de sensibilidad
 
+### Si las simulaciones aun corren:
+- Monitorear via ntfy (topic: `sph-kevin-tesis-2026`)
+- Puedes correr analisis parcial cuando haya >= 10 casos:
+  ```bash
+  python scripts/analisis_completo.py
+  ```
+- Analizar a los 30 casos si Sobol ya convergio → posiblemente parar ahi
+
+### Pendiente siempre:
+- **Email a Moris** pidiendo: 6 STLs adicionales + validacion de rangos
+- **Render Blender** en WS (agua PLY pendiente)
+
+## CONTEXTO CRITICO
+
+### Reencuadre del estudio (sesion 14)
+- Las 50 sims son un **estudio preliminar de screening**, NO el estudio definitivo
+- Objetivo: determinar que parametros importan (Sobol) y donde esta la transicion
+- Esto informa el diseno del estudio principal con 7 formas de boulder
+- Los 50 casos usan un LHS DEDICADO de 50 puntos (no subset de 100)
+
+### Caso de validacion independiente
+- `data/validacion_lhs001_old.csv` — caso de la corrida anterior (LHS 100)
+- h=0.293, M=1.452, rot=53.2 → disp=2.839m, MOVIMIENTO
+- Usar para validar GP: si predice ~2.8m, el modelo funciona
+
+### Plan del Fondecyt (7 formas)
 ```
-Tesis/
-├── CLAUDE.md                     # Instrucciones del proyecto
-├── RETOMAR.md                    # Punto de entrada (LEER PRIMERO)
-├── DEFENSA_TECNICA.md            # Documento de defensa (650+ lineas)
-├── PLAN.md                       # Plan de implementacion
-├── PLAN_RENDER.md                # Plan render Blender
-├── EDUCACION_TECNICA.md          # Guia tecnica SPH
-├── AUDITORIA_FISICA.md           # Auditoria de parametros fisicos
-│
-├── src/                          # Pipeline principal (4 modulos)
-│   ├── geometry_builder.py
-│   ├── batch_runner.py
-│   ├── data_cleaner.py
-│   ├── ml_surrogate.py
-│   └── main_orchestrator.py
-│
-├── scripts/                      # Scripts standalone activos
-│   ├── run_convergence.py        # Correr estudio de convergencia
-│   ├── convergencia_formal.py    # Analisis formal de convergencia
-│   ├── figuras_convergencia_7dp_es.py  # Figuras convergencia ES (7dp)
-│   ├── run_for_render.py         # Script render para WS
-│   ├── run_production.py         # Script produccion para WS
-│   ├── blender_render.py         # Script Blender render
-│   ├── convert_vtk_to_ply.py     # Convertir VTK a PLY
-│   └── test_ml.py                # Test GP surrogate
-│
-├── config/                       # Configuracion
-│   ├── template_base.xml         # Template XML DualSPHysics
-│   ├── Floating_Materials.xml    # Materiales Chrono
-│   ├── experiment_matrix.csv     # Matriz LHS
-│   ├── param_ranges.json         # Rangos parametricos (editar con Dr. Moris)
-│   └── dsph_config.json          # Config paths DualSPHysics
-│
-├── models/                       # Geometrias STL
-│   ├── BLIR3.stl                 # Boulder irregular
-│   └── Canal_Playa_1esa20_750cm.stl  # Canal + playa
-│
-├── data/                         # Resultados
-│   ├── processed/                # CSVs procesados (lhs_001-005, test_diego)
-│   ├── figuras_7dp/              # Figuras convergencia EN (VIGENTES)
-│   ├── figuras_7dp_es/           # Figuras convergencia ES (VIGENTES)
-│   ├── figuras_tesis/            # Figuras para capitulos de tesis
-│   ├── figuras_ml/               # Figuras ML surrogate
-│   ├── figuras_ml_test/          # Figuras ML test
-│   ├── reporte_convergencia_7dp.csv  # Reporte convergencia final
-│   └── production_status.json    # Estado produccion
-│
-├── tesis/                        # Capitulos de tesis
-│   ├── cap3_metodologia.md
-│   ├── cap4_resultados_convergencia.md
-│   └── cap5_pipeline.md
-│
-├── cases/                        # Casos de simulacion (con outputs)
-│   ├── lhs_001/ ... lhs_005/    # 5 casos LHS
-│   └── test_diego_reference/     # Caso referencia de Diego
-│
-├── ENTREGA_KEVIN/                # Archivos originales de Diego (referencia)
-│
-├── archive/                      # Material archivado (ya no se usa)
-│   ├── scripts/                  # Scripts obsoletos
-│   │   ├── app.py                # Dashboard Dash (no activo)
-│   │   ├── monitor_dp003.py      # Monitor GitHub (cumplio funcion)
-│   │   ├── figuras_convergencia_v2.py      # Supersedido por 7dp
-│   │   ├── figuras_convergencia_v2_es.py   # Supersedido por 7dp
-│   │   ├── generar_todas_figuras.py        # Generador viejo
-│   │   ├── verificar_setup.py              # Check one-time
-│   │   ├── preview_paraview.py             # Utilidad ParaView
-│   │   ├── auditor_stl.py                  # Auditor STL
-│   │   ├── generar_figuras_tesis.py        # Generador figuras viejo
-│   │   └── analisis_convergencia_paper.py  # Analisis paper viejo
-│   ├── docs/                     # Contextos y docs viejos
-│   │   ├── contexto_previo_gemini_3.1_pro.md
-│   │   ├── contexto.md
-│   │   ├── contexto-1227.md
-│   │   ├── RESEARCH_PROJECT_CONTEXT.md
-│   │   ├── INFORME_SESION.md
-│   │   ├── english_technical_guide.md
-│   │   ├── upwork_profile.md
-│   │   ├── Oferta capstone...pdf
-│   │   └── contexto-lead-architect/   # Contexto Diego (7 archivos)
-│   └── data/                     # Figuras y datos supersedidos
-│       ├── figuras_convergencia_v2/       # Figuras v2 EN (sin 7dp)
-│       ├── figuras_convergencia_v2_es/    # Figuras v2 ES (sin 7dp)
-│       ├── figuras_6dp/                   # Figuras 6dp (pre-7dp)
-│       ├── figuras_paper/                 # Figuras paper viejas
-│       ├── reporte_convergencia.csv       # Reporte viejo
-│       └── reporte_convergencia_6dp.csv   # Reporte 6dp viejo
-│
-└── .agente/                      # Contexto del agente
-    ├── conversacion/
-    └── codigo/
+Screening (corriendo)  →  Estudio Principal (7 formas)  →  Paper + Tesis
+  50 LHS, 1 forma          ~35/forma, informed by Sobol     GP + UQ + Sobol
+  ~9.4 dias GPU             ~7x35 = 245 sims                comparar formas
 ```
 
-## Lo que se hizo en sesion 11 (2026-02-24)
+### Decision sobre parametros
+- 3 params: dam_height [0.10,0.50], boulder_mass [0.80,1.60], rot_z [0,90]
+- Rangos NO validados por Moris — son provisionales
+- Si Sobol dice rot_z no importa → fijar en estudio principal (2 params, menos sims)
+- Para 7 formas: densidad fija (2650 kg/m3) probablemente mejor que masa variable
 
-### Reorganizacion de codebase
-- Creado `scripts/` para 8 scripts activos (antes sueltos en root)
-- Archivados 10 scripts obsoletos en `archive/scripts/`
-- Archivados 10+ docs/contextos viejos en `archive/docs/`
-- Archivadas 4 carpetas de figuras supersedidas + 2 CSVs viejos en `archive/data/`
-- Eliminado path anidado roto: `cases/test_diego_reference/cases/...`
-- Consolidado `archive/` que antes tenia scripts sueltos en raiz
+## Scripts de Analisis (post-simulacion)
 
-### Sesiones previas (resumen)
-- Sesion 10: DEFENSA_TECNICA.md + repo Git + revision tecnica
-- Sesion 8-9: Convergencia 7dp + render pipeline
-- Sesion 1-7: Pipeline completo, convergencia, figuras, tesis
+| Script | Que hace | Figuras |
+|--------|----------|---------|
+| `scripts/analisis_completo.py` | **Maestro** — corre todo en secuencia | 31 total |
+| `src/ml_surrogate.py` | Entrena GP, valida LOO | 3 |
+| `scripts/run_uq_analysis.py` | Monte Carlo + Sobol | 6 |
+| `scripts/figuras_piloto.py` | 22 figuras thesis-quality | 22 |
 
-## Resultados de Convergencia (sin cambios)
-| dp | Desplaz | Delta% | Rot | F_SPH | F_cont | Tiempo |
-|---|---|---|---|---|---|---|
-| 0.020 | 3.495m | — | 95.8 | 166.4N | 2254N | 13 min |
-| 0.015 | 3.433m | 1.8% | 97.2 | 77.0N | 4915N | 12 min |
-| 0.010 | 3.069m | 10.6% | 60.3 | 45.3N | 131N | 24 min |
-| 0.008 | 2.408m | 21.5% | 87.2 | 34.9N | 3229N | 30 min |
-| 0.005 | 1.725m | 28.4% | 86.8 | 23.0N | 3083N | 118 min |
-| 0.004 | 1.615m | 6.4% | 84.8 | 22.8N | 359N | 260 min |
-| 0.003 | 1.553m | 3.9% | 90.2 | 22.2N | 450N | 812 min |
+### Comando rapido
+```bash
+# Todo de una:
+python scripts/analisis_completo.py --validar
+
+# Solo figuras (si GP ya entrenado):
+python scripts/analisis_completo.py --solo-figuras
+
+# Testing sin datos reales:
+python scripts/analisis_completo.py --synthetic
+```
+
+## Lo que se hizo en sesion 14 (2026-02-24)
+
+### Correcciones criticas
+- **Bug timeout_s=None** en batch_runner.py (TypeError en log formatting)
+- **Logging mejorado**: progress banner con barra ASCII, ETA, tasa exito, resumen por caso
+- **Notificaciones ntfy mejoradas**: metricas detalladas por caso
+
+### Figuras: 14 → 22
+8 figuras nuevas: heatmap parametrico, boxplots, correlacion, violines, energia adimensional, dependencia parcial GP, dashboard multioutput, altura critica
+
+### Rediseno experimental
+- 100 → 50 casos LHS DEDICADO (no subset)
+- Reencuadre como "screening de sensibilidad" (no estudio definitivo)
+- Confirmado: LHS(50, seed=42) != primeros 50 de LHS(100, seed=42)
+
+### Script analisis_completo.py
+- Maestro que corre GP + UQ + 22 figuras + validacion en secuencia
+- 31 figuras totales en un solo comando
+- Incluye validacion contra caso lhs_001_old
+
+### Discusion de parametros
+- 3 params actuales son provisionales (no validados por Moris)
+- Para 7 formas: considerar densidad fija vs masa variable
+- rot_z podria eliminarse si Sobol < 5%
+
+### Git
+```
+2bc6b28 Redesign pilot as 50-case screening study (dedicated LHS)
+5501e4e Add 8 new thesis figures + detailed progress logging per case
+db7a04f Fix TypeError when timeout_s is None in log formatting
+```
 
 ## Decisiones Acumuladas
 - Chrono (RigidAlgorithm=3) obligatorio
 - massbody > rhopbody, FtPause=0.5
-- dp produccion: 0.004 (convergido)
+- dp produccion: 0.004 (convergido con 7 dp)
 - Contact force: NO usar como criterio (CV=82%)
-- Render: dp=0.004, TimeOut=0.5, 21 frames
-- WS sin git: deploy via ZIP (Invoke-WebRequest)
-- Blender: pestaña Scripting para ejecutar scripts (--python no funciona bien)
-- DEFENSA_TECNICA.md sin menciones a Diego (lenguaje neutro)
-- Repo Git local creado + GitHub remote
+- 3 parametros: dam_height [0.10,0.50], boulder_mass [0.80,1.60], boulder_rot_z [0,90]
+- Deploy WS via ZIP desde GitHub
+- Figuras: 300dpi PNG + PDF, espanol, serif fonts
+- UQ: Monte Carlo 10k + Sobol (Saltelli manual)
+- Timeout: None (sin limite, GPU dedicada)
+- Notificaciones: ntfy.sh topic sph-kevin-tesis-2026
+- 50 casos LHS dedicado para screening (no 100)
+- Screening informa diseno multi-forma (7 STLs)
 
-## Infraestructura
-- **Laptop**: git + gh CLI instalados, repo en C:\Seba\Tesis\
-- **GitHub**: https://github.com/kcortes765/Tesis (publico)
-- **WS UCN**: `C:\Users\ProyBloq_Cortes\Desktop\SPH-Convergencia` (sin git)
-- **Blender WS**: `C:\Program Files\Blender Foundation\Blender 4.2\blender.exe`
-
-## Cuando Dr. Moris Responda
-1. Editar `config/param_ranges.json` con rangos reales
-2. `python scripts/run_production.py --generate 50`
-3. Deploy en WS via ZIP
-4. `python scripts/run_production.py --prod`
-
-## Email enviado al Dr. Moris (2026-02-20)
-Preguntas pendientes:
-1. Geometria: ¿solo BLIR3.stl o otras formas?
-2. Altura de flujo: rango realista para canal UCN
-3. Masa del bloque: rango presupuestado para testeo fisico
-4. Criterio de movimiento incipiente: umbrales de desplazamiento/rotacion
+## WS Status
+- **Corrida activa**: 50 casos LHS, dp=0.004, iniciada 2026-02-24 14:49
+- **Caso 1 viejo**: guardado en `cases/_validacion/lhs_001_old/`
+- **ETA fin**: ~2026-03-06 (9.4 dias)
