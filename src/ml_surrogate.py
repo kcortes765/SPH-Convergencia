@@ -3,12 +3,12 @@ ml_surrogate.py — Modulo 4 del Pipeline SPH-IncipientMotion
 
 Gaussian Process Surrogate conectado a datos reales de SQLite.
 Entrena un GP Matern nu=2.5 para predecir desplazamiento del boulder
-a partir de parametros de entrada (dam_height, boulder_mass).
+a partir de parametros de entrada (dam_height, boulder_mass, boulder_rot_z).
 
 Si hay menos de MIN_REAL_POINTS datos reales, complementa con datos
 sinteticos basados en fisica simplificada (flaggeados como sinteticos).
 
-Genera figuras de tesis y exporta modelo .pkl para el dashboard.
+Genera figuras de tesis y exporta modelo .pkl para UQ downstream.
 
 Ejecutar:
     python src/ml_surrogate.py
@@ -18,9 +18,11 @@ Autor: Kevin Cortes (UCN 2026)
 """
 
 import argparse
+import json
 import logging
 import pickle
 import sqlite3
+from itertools import combinations
 from pathlib import Path
 
 import numpy as np
@@ -56,8 +58,20 @@ PLT_STYLE = {
     'axes.spines.top': False, 'axes.spines.right': False,
 }
 
-FEATURES = ['dam_height', 'boulder_mass']
+FEATURES = ['dam_height', 'boulder_mass', 'boulder_rot_z']
 TARGET = 'max_displacement'
+
+FEATURE_LABELS = {
+    'dam_height': 'Altura columna $h$ [m]',
+    'boulder_mass': 'Masa boulder [kg]',
+    'boulder_rot_z': r'$\theta_z$ [grados]',
+}
+
+FEATURE_COLORS = {
+    'dam_height': '#2166AC',
+    'boulder_mass': '#B2182B',
+    'boulder_rot_z': '#6A3D9A',
+}
 
 
 # ---------------------------------------------------------------------------
@@ -71,8 +85,8 @@ def load_real_data(db_path: Path = DB_PATH) -> pd.DataFrame:
         return pd.DataFrame()
 
     conn = sqlite3.connect(str(db_path))
-    df = pd.read_sql(f"""
-        SELECT case_name, dam_height, boulder_mass, dp,
+    df = pd.read_sql("""
+        SELECT case_name, dam_height, boulder_mass, boulder_rot_z, dp,
                max_displacement, max_rotation, max_velocity,
                max_sph_force, max_contact_force,
                max_flow_velocity, max_water_height,
@@ -81,6 +95,12 @@ def load_real_data(db_path: Path = DB_PATH) -> pd.DataFrame:
         WHERE dam_height > 0 AND boulder_mass > 0
     """, conn)
     conn.close()
+
+    # Backward compat: si boulder_rot_z es NULL, rellenar con 0
+    if 'boulder_rot_z' in df.columns:
+        df['boulder_rot_z'] = df['boulder_rot_z'].fillna(0.0)
+    else:
+        df['boulder_rot_z'] = 0.0
 
     logger.info(f"Datos reales: {len(df)} casos de {db_path.name}")
     return df
@@ -92,11 +112,15 @@ def generate_synthetic(n: int = N_SYNTHETIC, seed: int = SEED) -> pd.DataFrame:
 
     dam_height = rng.uniform(0.15, 0.50, n)
     boulder_mass = rng.uniform(0.5, 3.0, n)
+    boulder_rot_z = rng.uniform(0, 90, n)
 
     # Modelo fisico simplificado: E ~ rho*g*h^2/2, R ~ m*g*mu
     energy = 1000 * 9.81 * dam_height**2 * 0.5
     resistance = boulder_mass * 9.81 * 0.6
     displacement = 2.0 * (energy / resistance) ** 0.7
+    # Rotacion tiene efecto leve (area frontal varia ~10%)
+    rot_effect = 1.0 - 0.1 * np.sin(np.radians(boulder_rot_z))
+    displacement *= rot_effect
     displacement += rng.normal(0, 0.15, n)
     displacement = np.maximum(displacement, 0)
 
@@ -104,6 +128,7 @@ def generate_synthetic(n: int = N_SYNTHETIC, seed: int = SEED) -> pd.DataFrame:
         'case_name': [f"synth_{i+1:03d}" for i in range(n)],
         'dam_height': dam_height,
         'boulder_mass': boulder_mass,
+        'boulder_rot_z': boulder_rot_z,
         'dp': 0.0,
         'max_displacement': displacement,
         'max_rotation': rng.uniform(0, 90, n),
@@ -191,66 +216,103 @@ def loo_validation(gp, X_scaled, y_scaled, scaler_y, y_real) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Rangos de features (para grillas de figuras)
+# ---------------------------------------------------------------------------
+
+def _load_feature_ranges() -> dict:
+    """Carga rangos de param_ranges.json, con fallback a defaults."""
+    ranges_path = PROJECT_ROOT / "config" / "param_ranges.json"
+    defaults = {
+        'dam_height': (0.10, 0.55),
+        'boulder_mass': (0.3, 3.5),
+        'boulder_rot_z': (-5, 95),
+    }
+    if ranges_path.exists():
+        with open(ranges_path) as f:
+            cfg = json.load(f)
+        params = cfg.get('parameters', {})
+        for feat in FEATURES:
+            if feat in params:
+                margin = (params[feat]['max'] - params[feat]['min']) * 0.1
+                defaults[feat] = (
+                    params[feat]['min'] - margin,
+                    params[feat]['max'] + margin,
+                )
+    return defaults
+
+
+# ---------------------------------------------------------------------------
 # Figuras de tesis
 # ---------------------------------------------------------------------------
 
-def plot_surface(gp, scaler_X, scaler_y, X_real, y_real,
-                 is_synthetic, out_dir: Path):
-    """Fig: superficie de prediccion GP + incertidumbre."""
+def plot_2d_slices(gp, scaler_X, scaler_y, X_real, y_real,
+                   is_synthetic, out_dir: Path):
+    """Fig: slices 2D del GP (un subplot por par de features)."""
     plt.rcParams.update(PLT_STYLE)
 
-    h_grid = np.linspace(0.10, 0.55, 50)
-    m_grid = np.linspace(0.3, 3.5, 50)
-    H, M = np.meshgrid(h_grid, m_grid)
-    X_grid = np.column_stack([H.ravel(), M.ravel()])
-    X_grid_s = scaler_X.transform(X_grid)
+    feat_ranges = _load_feature_ranges()
+    n_feat = len(FEATURES)
+    pairs = list(combinations(range(n_feat), 2))
+    n_pairs = len(pairs)
 
-    y_pred_s, y_std_s = gp.predict(X_grid_s, return_std=True)
-    y_pred = scaler_y.inverse_transform(y_pred_s.reshape(-1, 1)).ravel()
-    y_std = y_std_s * scaler_y.scale_[0]
+    fig, axes = plt.subplots(1, n_pairs, figsize=(5.5 * n_pairs, 4.5))
+    if n_pairs == 1:
+        axes = [axes]
 
-    Z_pred = y_pred.reshape(H.shape)
-    Z_std = y_std.reshape(H.shape)
-
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4.5))
-
-    # Prediccion
-    ax = axes[0]
-    cf = ax.contourf(H, M, Z_pred, levels=20, cmap='RdYlGn_r')
+    medians = np.median(X_real, axis=0)
     mask_real = ~is_synthetic
     mask_synth = is_synthetic
-    if mask_real.any():
-        ax.scatter(X_real[mask_real, 0], X_real[mask_real, 1], c='black', s=25,
-                   edgecolors='white', linewidths=0.5, zorder=5, label='Datos SPH reales')
-    if mask_synth.any():
-        ax.scatter(X_real[mask_synth, 0], X_real[mask_synth, 1], c='gray', s=15,
-                   marker='x', zorder=4, alpha=0.5, label='Datos sinteticos')
-    plt.colorbar(cf, ax=ax, label='Desplaz. max [m]')
-    ax.set_xlabel('Altura columna $h$ [m]')
-    ax.set_ylabel('Masa boulder [kg]')
-    ax.set_title('(a) Prediccion GP')
-    ax.legend(fontsize=7.5)
 
-    # Incertidumbre
-    ax = axes[1]
-    cf2 = ax.contourf(H, M, Z_std * 2, levels=20, cmap='Oranges')
-    if mask_real.any():
-        ax.scatter(X_real[mask_real, 0], X_real[mask_real, 1], c='black', s=25,
-                   edgecolors='white', linewidths=0.5, zorder=5)
-    plt.colorbar(cf2, ax=ax, label='Incertidumbre 2$\\sigma$ [m]')
-    ax.set_xlabel('Altura columna $h$ [m]')
-    ax.set_ylabel('Masa boulder [kg]')
-    ax.set_title('(b) Intervalo de confianza 95%')
+    for ax, (i, j) in zip(axes, pairs):
+        fi, fj = FEATURES[i], FEATURES[j]
+        ri = feat_ranges[fi]
+        rj = feat_ranges[fj]
+
+        xi = np.linspace(ri[0], ri[1], 50)
+        xj = np.linspace(rj[0], rj[1], 50)
+        Xi, Xj = np.meshgrid(xi, xj)
+
+        X_grid = np.tile(medians, (Xi.size, 1))
+        X_grid[:, i] = Xi.ravel()
+        X_grid[:, j] = Xj.ravel()
+
+        X_grid_s = scaler_X.transform(X_grid)
+        y_s, _ = gp.predict(X_grid_s, return_std=True)
+        y_pred = scaler_y.inverse_transform(y_s.reshape(-1, 1)).ravel()
+        Z = y_pred.reshape(Xi.shape)
+
+        cf = ax.contourf(Xi, Xj, Z, levels=20, cmap='RdYlGn_r')
+        plt.colorbar(cf, ax=ax, label='Desplaz. [m]')
+
+        if mask_real.any():
+            ax.scatter(X_real[mask_real, i], X_real[mask_real, j],
+                       c='black', s=25, edgecolors='white', linewidths=0.5,
+                       zorder=5, label='SPH reales')
+        if mask_synth.any():
+            ax.scatter(X_real[mask_synth, i], X_real[mask_synth, j],
+                       c='gray', s=15, marker='x', zorder=4, alpha=0.5,
+                       label='Sinteticos')
+
+        ax.set_xlabel(FEATURE_LABELS[fi])
+        ax.set_ylabel(FEATURE_LABELS[fj])
+
+        # Indicar valor fijo del 3er parametro
+        others = [k for k in range(n_feat) if k not in (i, j)]
+        fixed_str = ", ".join(
+            f"{FEATURES[k]}={medians[k]:.1f}" for k in others
+        )
+        ax.set_title(f'Fijando {fixed_str}', fontsize=9)
+        ax.legend(fontsize=7)
 
     n_real = mask_real.sum()
     n_synth = mask_synth.sum()
-    fig.suptitle(f'GP Surrogate ({n_real} reales + {n_synth} sinteticos)',
+    fig.suptitle(f'GP Surrogate — Slices 2D ({n_real} reales + {n_synth} sint.)',
                  fontsize=13, fontweight='bold', y=1.02)
     fig.tight_layout()
-    fig.savefig(out_dir / 'gp_surface.png')
-    fig.savefig(out_dir / 'gp_surface.pdf')
+    fig.savefig(out_dir / 'gp_2d_slices.png')
+    fig.savefig(out_dir / 'gp_2d_slices.pdf')
     plt.close(fig)
-    logger.info(f"  Figura: gp_surface")
+    logger.info(f"  Figura: gp_2d_slices")
 
 
 def plot_loo(y_real, loo_result, is_synthetic, out_dir: Path):
@@ -297,64 +359,60 @@ def plot_loo(y_real, loo_result, is_synthetic, out_dir: Path):
     logger.info(f"  Figura: gp_loo_validation")
 
 
-def plot_slices(gp, scaler_X, scaler_y, X_real, y_real,
-                is_synthetic, out_dir: Path):
-    """Fig: cortes 1D con intervalos de confianza."""
+def plot_1d_slices(gp, scaler_X, scaler_y, X_real, y_real,
+                   is_synthetic, out_dir: Path):
+    """Fig: cortes 1D con intervalos de confianza (un panel por feature)."""
     plt.rcParams.update(PLT_STYLE)
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4.5))
+    feat_ranges = _load_feature_ranges()
+    n_feat = len(FEATURES)
+    medians = np.median(X_real, axis=0)
 
-    # Corte 1: masa fija, variar altura
-    m_fixed = float(np.median(X_real[:, 1]))
-    h_line = np.linspace(0.10, 0.55, 100)
-    X_cut = np.column_stack([h_line, np.full_like(h_line, m_fixed)])
-    X_cut_s = scaler_X.transform(X_cut)
-    y_s, std_s = gp.predict(X_cut_s, return_std=True)
-    y_cut = scaler_y.inverse_transform(y_s.reshape(-1, 1)).ravel()
-    std_cut = std_s * scaler_y.scale_[0]
+    fig, axes = plt.subplots(1, n_feat, figsize=(5 * n_feat, 4.5))
+    if n_feat == 1:
+        axes = [axes]
 
-    ax1.plot(h_line, y_cut, color='#2166AC', lw=2, label='GP')
-    ax1.fill_between(h_line, y_cut - 2*std_cut, y_cut + 2*std_cut,
-                     alpha=0.2, color='#2166AC', label='IC 95%')
-    mask = np.abs(X_real[:, 1] - m_fixed) < 0.5
-    mask_r = mask & ~is_synthetic
-    mask_s = mask & is_synthetic
-    if mask_r.any():
-        ax1.scatter(X_real[mask_r, 0], y_real[mask_r], c='red', s=30,
-                    zorder=5, edgecolors='white', linewidths=0.5, label='SPH reales')
-    if mask_s.any():
-        ax1.scatter(X_real[mask_s, 0], y_real[mask_s], c='gray', s=15,
-                    marker='x', zorder=4, alpha=0.5, label='Sinteticos')
-    ax1.set_xlabel('Altura columna $h$ [m]')
-    ax1.set_ylabel('Desplazamiento [m]')
-    ax1.set_title(f'(a) Masa fija = {m_fixed:.2f} kg')
-    ax1.legend(fontsize=7.5)
+    for idx, (ax, feat) in enumerate(zip(axes, FEATURES)):
+        r = feat_ranges[feat]
+        x_line = np.linspace(r[0], r[1], 100)
 
-    # Corte 2: altura fija, variar masa
-    h_fixed = float(np.median(X_real[:, 0]))
-    m_line = np.linspace(0.3, 3.5, 100)
-    X_cut2 = np.column_stack([np.full_like(m_line, h_fixed), m_line])
-    X_cut2_s = scaler_X.transform(X_cut2)
-    y_s2, std_s2 = gp.predict(X_cut2_s, return_std=True)
-    y_cut2 = scaler_y.inverse_transform(y_s2.reshape(-1, 1)).ravel()
-    std_cut2 = std_s2 * scaler_y.scale_[0]
+        X_cut = np.tile(medians, (100, 1))
+        X_cut[:, idx] = x_line
+        X_cut_s = scaler_X.transform(X_cut)
 
-    ax2.plot(m_line, y_cut2, color='#B2182B', lw=2, label='GP')
-    ax2.fill_between(m_line, y_cut2 - 2*std_cut2, y_cut2 + 2*std_cut2,
-                     alpha=0.2, color='#B2182B', label='IC 95%')
-    mask2 = np.abs(X_real[:, 0] - h_fixed) < 0.05
-    mask2_r = mask2 & ~is_synthetic
-    mask2_s = mask2 & is_synthetic
-    if mask2_r.any():
-        ax2.scatter(X_real[mask2_r, 1], y_real[mask2_r], c='blue', s=30,
-                    zorder=5, edgecolors='white', linewidths=0.5, label='SPH reales')
-    if mask2_s.any():
-        ax2.scatter(X_real[mask2_s, 1], y_real[mask2_s], c='gray', s=15,
-                    marker='x', zorder=4, alpha=0.5, label='Sinteticos')
-    ax2.set_xlabel('Masa boulder [kg]')
-    ax2.set_ylabel('Desplazamiento [m]')
-    ax2.set_title(f'(b) Altura fija = {h_fixed:.2f} m')
-    ax2.legend(fontsize=7.5)
+        y_s, std_s = gp.predict(X_cut_s, return_std=True)
+        y_cut = scaler_y.inverse_transform(y_s.reshape(-1, 1)).ravel()
+        std_cut = std_s * scaler_y.scale_[0]
+
+        color = FEATURE_COLORS[feat]
+        ax.plot(x_line, y_cut, color=color, lw=2, label='GP')
+        ax.fill_between(x_line, y_cut - 2*std_cut, y_cut + 2*std_cut,
+                         alpha=0.2, color=color, label='IC 95%')
+
+        # Scatter datos cercanos a la mediana de las otras features
+        tolerances = (np.max(X_real, axis=0) - np.min(X_real, axis=0)) * 0.3
+        mask = np.ones(len(X_real), dtype=bool)
+        for k in range(n_feat):
+            if k != idx:
+                mask &= np.abs(X_real[:, k] - medians[k]) < tolerances[k]
+        mask_r = mask & ~is_synthetic
+        mask_s = mask & is_synthetic
+        if mask_r.any():
+            ax.scatter(X_real[mask_r, idx], y_real[mask_r], c='red', s=30,
+                        zorder=5, edgecolors='white', linewidths=0.5,
+                        label='SPH reales')
+        if mask_s.any():
+            ax.scatter(X_real[mask_s, idx], y_real[mask_s], c='gray', s=15,
+                        marker='x', zorder=4, alpha=0.5, label='Sint.')
+
+        ax.set_xlabel(FEATURE_LABELS[feat])
+        ax.set_ylabel('Desplazamiento [m]')
+
+        others_str = ", ".join(
+            f"{FEATURES[k]}={medians[k]:.1f}" for k in range(n_feat) if k != idx
+        )
+        ax.set_title(f'Fijando {others_str}', fontsize=9)
+        ax.legend(fontsize=7)
 
     fig.suptitle('Cortes 1D del GP con Intervalos de Confianza',
                  fontsize=13, fontweight='bold', y=1.02)
@@ -420,9 +478,9 @@ def run_surrogate(force_synthetic: bool = False) -> dict:
 
     # 5. Figuras
     print("\nGenerando figuras...")
-    plot_surface(gp, scaler_X, scaler_y, X, y, is_synthetic, OUT_DIR)
+    plot_2d_slices(gp, scaler_X, scaler_y, X, y, is_synthetic, OUT_DIR)
     plot_loo(y, loo_result, is_synthetic, OUT_DIR)
-    plot_slices(gp, scaler_X, scaler_y, X, y, is_synthetic, OUT_DIR)
+    plot_1d_slices(gp, scaler_X, scaler_y, X, y, is_synthetic, OUT_DIR)
 
     # 6. Exportar modelo
     model_package = {
@@ -430,6 +488,7 @@ def run_surrogate(force_synthetic: bool = False) -> dict:
         'scaler_X': scaler_X,
         'scaler_y': scaler_y,
         'features': FEATURES,
+        'feature_labels': FEATURE_LABELS,
         'target': TARGET,
         'n_real': n_real,
         'n_synthetic': n_synth,

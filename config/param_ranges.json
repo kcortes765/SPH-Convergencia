@@ -1,27 +1,27 @@
 {
-    "_status": "PLACEHOLDER - esperando validacion Dr. Moris",
-    "_updated": "2026-02-21",
+    "_status": "PROVISIONAL - estudio piloto (rangos seran validados por Dr. Moris)",
+    "_updated": "2026-02-24",
     "parameters": {
         "dam_height": {
-            "min": 0.2,
-            "max": 0.5,
+            "min": 0.15,
+            "max": 0.50,
             "unit": "m",
             "description": "Altura columna de agua (Dam Break)"
         },
         "boulder_mass": {
-            "min": 1.0,
+            "min": 0.5,
             "max": 3.0,
             "unit": "kg",
             "description": "Masa del boulder"
-        }
-    },
-    "pending_parameters": {
-        "theta_z": {
+        },
+        "boulder_rot_z": {
             "min": 0,
             "max": 90,
             "unit": "deg",
-            "description": "Angulo incidencia inicial (rotacion Z) - ESPERANDO DR. MORIS"
-        },
+            "description": "Angulo de orientacion del boulder (rotacion Z)"
+        }
+    },
+    "pending_parameters": {
         "stl_file": {
             "options": ["BLIR3.stl"],
             "description": "Geometria del boulder - ESPERANDO 6 STLs mas (BLIR1-2, BLIR4-7)"
@@ -29,6 +29,7 @@
     },
     "sampling": {
         "n_samples_dev": 5,
+        "n_samples_pilot": 35,
         "n_samples_prod": 50,
         "seed": 42
     }

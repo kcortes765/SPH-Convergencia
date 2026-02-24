@@ -72,6 +72,7 @@ class CaseResult:
     # Parametros de entrada (para ML surrogate)
     dam_height: float = 0.0      # Altura columna de agua (m)
     boulder_mass: float = 0.0    # Masa del boulder (kg)
+    boulder_rot_z: float = 0.0   # Angulo de orientacion Z (grados)
     dp: float = 0.0              # Distancia entre particulas (m)
     stl_file: str = ""           # Nombre del STL usado
 
@@ -482,6 +483,7 @@ def save_to_sqlite(results: list, db_path: Path, table: str = 'results'):
             n_timesteps INTEGER,
             dam_height REAL,
             boulder_mass REAL,
+            boulder_rot_z REAL,
             dp REAL,
             stl_file TEXT
         )
@@ -490,6 +492,7 @@ def save_to_sqlite(results: list, db_path: Path, table: str = 'results'):
     # Agregar columnas nuevas si la tabla ya existia sin ellas
     existing_cols = {row[1] for row in cursor.execute(f"PRAGMA table_info({table})").fetchall()}
     for col, coltype in [('dam_height', 'REAL'), ('boulder_mass', 'REAL'),
+                         ('boulder_rot_z', 'REAL'),
                          ('dp', 'REAL'), ('stl_file', 'TEXT')]:
         if col not in existing_cols:
             cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col} {coltype}")
@@ -498,7 +501,7 @@ def save_to_sqlite(results: list, db_path: Path, table: str = 'results'):
     for _, row in df.iterrows():
         cursor.execute(f"""
             INSERT OR REPLACE INTO {table} VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
         """, (
             row['case_name'],
@@ -509,6 +512,7 @@ def save_to_sqlite(results: list, db_path: Path, table: str = 'results'):
             int(row['moved']), int(row['rotated']), int(row['failed']),
             row['sim_time_reached'], row['n_timesteps'],
             row.get('dam_height', 0.0), row.get('boulder_mass', 0.0),
+            row.get('boulder_rot_z', 0.0),
             row.get('dp', 0.0), row.get('stl_file', ''),
         ))
 

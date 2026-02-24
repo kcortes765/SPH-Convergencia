@@ -120,7 +120,13 @@ def run_production(args):
     ranges_json = PROJECT_ROOT / 'config' / 'param_ranges.json'
     with open(ranges_json) as f:
         ranges_cfg = json.load(f)
-    n_samples = ranges_cfg['sampling']['n_samples_prod' if args.prod else 'n_samples_dev']
+    if args.pilot:
+        n_samples = ranges_cfg['sampling'].get('n_samples_pilot', 35)
+        logger.info(f"MODO PILOTO: {n_samples} muestras")
+    elif args.prod:
+        n_samples = ranges_cfg['sampling']['n_samples_prod']
+    else:
+        n_samples = ranges_cfg['sampling']['n_samples_dev']
 
     # Solo generar?
     if args.generate:
@@ -269,6 +275,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Produccion masiva SPH-IncipientMotion')
     parser.add_argument('--prod', action='store_true',
                         help='Usar dp de produccion (convergido)')
+    parser.add_argument('--pilot', action='store_true',
+                        help='Estudio piloto (n_samples_pilot del JSON)')
     parser.add_argument('--generate', type=int, default=0,
                         help='Solo generar N muestras LHS y salir')
     parser.add_argument('--desde', type=int, default=0,

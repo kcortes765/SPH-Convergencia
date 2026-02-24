@@ -146,10 +146,13 @@ def run_pipeline_case(row: pd.Series, project_root: Path,
     case_id = row['case_id']
     start = datetime.now()
 
+    rot_z = float(row.get('boulder_rot_z', 0.0))
+
     pipeline_result = {
         'case_id': case_id,
         'dam_height': row['dam_height'],
         'boulder_mass': row['boulder_mass'],
+        'boulder_rot_z': rot_z,
         'dp': dp,
         'success': False,
         'result': None,
@@ -169,7 +172,7 @@ def run_pipeline_case(row: pd.Series, project_root: Path,
         # --- PASO 1: Geometry Builder ---
         logger.info(f"\n{'='*60}")
         logger.info(f"CASO {case_id}: dam_h={row['dam_height']:.3f}m, "
-                     f"mass={row['boulder_mass']:.3f}kg, dp={dp}")
+                     f"mass={row['boulder_mass']:.3f}kg, rot_z={rot_z:.1f}deg, dp={dp}")
         logger.info(f"{'='*60}")
 
         params = CaseParams(
@@ -180,7 +183,7 @@ def run_pipeline_case(row: pd.Series, project_root: Path,
             # Defaults del template para el resto
             boulder_scale=0.04,
             boulder_pos=(8.5, 0.5, 0.1),
-            boulder_rot=(0.0, 0.0, 0.0),
+            boulder_rot=(0.0, 0.0, rot_z),
             material="pvc",
             time_max=config['defaults']['time_max'],
             time_out=config['defaults']['time_out'],
@@ -223,6 +226,7 @@ def run_pipeline_case(row: pd.Series, project_root: Path,
         # Inyectar parametros de entrada para ML surrogate
         case_result.dam_height = row['dam_height']
         case_result.boulder_mass = row['boulder_mass']
+        case_result.boulder_rot_z = rot_z
         case_result.dp = dp
         case_result.stl_file = config['paths'].get('boulder_stl', '').split('/')[-1]
         pipeline_result['result'] = case_result
