@@ -9,7 +9,7 @@ suscribirse al topic configurado).
 
 Ejecutar:
     python run_production.py --pilot --dry-run     # Verificar sin GPU
-    python run_production.py --pilot --prod         # Correr 100 casos
+    python run_production.py --pilot --prod         # Correr 50 casos
     python run_production.py --pilot --prod --desde 15  # Recovery
 
 Autor: Kevin Cortes (UCN 2026)

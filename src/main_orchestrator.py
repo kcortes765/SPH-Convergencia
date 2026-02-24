@@ -365,7 +365,7 @@ if __name__ == '__main__':
             print(f"Matriz generada: {matrix_csv}")
             sys.exit(0)
         elif sys.argv[1] == '--prod':
-            dp = config['defaults']['dp_prod']  # 0.005 para produccion
+            dp = config['defaults']['dp_prod']  # 0.004 para produccion
             logger.info(f"MODO PRODUCCION: dp={dp}")
 
     # Generar matriz si no existe

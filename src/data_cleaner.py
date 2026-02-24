@@ -500,7 +500,16 @@ def save_to_sqlite(results: list, db_path: Path, table: str = 'results'):
 
     for _, row in df.iterrows():
         cursor.execute(f"""
-            INSERT OR REPLACE INTO {table} VALUES (
+            INSERT OR REPLACE INTO {table} (
+                case_name, max_displacement, max_displacement_rel,
+                max_rotation, max_velocity,
+                max_sph_force, max_contact_force,
+                max_flow_velocity, max_water_height,
+                moved, rotated, failed,
+                sim_time_reached, n_timesteps,
+                dam_height, boulder_mass, boulder_rot_z,
+                dp, stl_file
+            ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
         """, (

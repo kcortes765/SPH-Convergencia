@@ -148,8 +148,8 @@ PartVTK -onlymk:[mk] -vars:+vel,+press -savevtk OutputVTK
       <parameter key="ViscoTreatment" value="1" />     <!-- 1=Artificial -->
       <parameter key="Visco" value="0.1" />
       <parameter key="DensityDT" value="2" />          <!-- 0=None, 1=Molteni, 2=Fourtakas -->
-      <parameter key="RigidAlgorithm" value="1" />    <!-- 0=collision-free, 1=SPH, 2=DEM, 3=Chrono -->
-      <parameter key="FtPause" value="0.0" />          <!-- Congelar flotantes N seg (útil para asentar fluido) -->
+      <parameter key="RigidAlgorithm" value="3" />    <!-- 0=collision-free, 1=SPH, 2=DEM, 3=Chrono (MUST be 3) -->
+      <parameter key="FtPause" value="0.5" />          <!-- Congelar flotantes N seg (obligatorio >= 0.5) -->
       <parameter key="TimeMax" value="[tiempo_max]" />
       <parameter key="TimeOut" value="[intervalo]" />
     </parameters>

@@ -28,7 +28,7 @@ La playa se modela mediante un archivo STL (`Canal_Playa_1esa20_750cm.stl`) con 
 La condición inicial del flujo se genera mediante una columna de agua estática que colapsa por gravedad en t = 0, produciendo una onda tipo bore que se propaga hacia la playa.
 
 **Parámetros de la columna de agua:**
-- Altura: 0.3 m (configurable en rango [0.2, 0.5] m)
+- Altura: 0.3 m (configurable en rango [0.10, 0.50] m)
 - Longitud: 3.0 m
 - Ancho: completo del canal (1.0 m)
 - Generación: `fillbox` con semilla interior y modo `void`
@@ -167,10 +167,12 @@ El archivo `ChronoBody_forces.csv` registra las fuerzas hidrodinámicas SPH y la
 
 | Componente | Variables | Unidades |
 |------------|-----------|----------|
-| Fuerza hidrodinámica SPH | fx, fy, fz | N |
-| Momento hidrodinámico SPH | mx, my, mz | N·m |
-| Fuerza de contacto | cfx, cfy, cfz | N |
-| Momento de contacto | cmx, cmy, cmz | N·m |
+| Fuerza total SPH (incluye gravedad) | fx, fy, fz | N |
+| Momento total SPH | mx, my, mz | N·m |
+| Fuerza de contacto (Chrono) | cfx, cfy, cfz | N |
+| Momento de contacto (Chrono) | cmx, cmy, cmz | N·m |
+
+**Nota importante:** Las columnas fx, fy, fz incluyen la contribución gravitacional. En reposo sin fluido, fz = −m·g. Para obtener la fuerza hidrodinámica neta, se debe restar el peso propio del bloque.
 
 **Formato CSV:** Separador punto y coma (`;`), decimal punto (`.`), precisión 6 cifras significativas.
 
@@ -262,10 +264,11 @@ Se selecciona **dp = 0.004 m** para la campaña paramétrica por las siguientes 
 El pipeline se implementa en Python y consta de 4 módulos desacoplados:
 
 ```
-┌──────────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
-│  Geometry Builder │───►│ Batch Runner │───►│ Data Cleaner │───►│ ML Surrogate │
-│  (STL + XML)      │    │ (GPU SPH)    │    │ (CSV → SQL)  │    │ (GP Regress) │
-└──────────────────┘    └──────────────┘    └──────────────┘    └──────────────┘
+┌────────────┐   ┌────────────┐   ┌────────────┐   ┌────────────┐   ┌──────────┐
+│  Geometry  │──►│   Batch    │──►│    Data    │──►│     ML     │──►│    UQ    │
+│  Builder   │   │   Runner   │   │  Cleaner   │   │ Surrogate  │   │ (Sobol+  │
+│ (STL→XML)  │   │ (GPU SPH)  │   │ (CSV→SQL)  │   │ (GP Regr)  │   │  MC+CI)  │
+└────────────┘   └────────────┘   └────────────┘   └────────────┘   └──────────┘
 ```
 
 **Módulo 1 — Geometry Builder:** Toma la geometría STL del bloque y una plantilla XML base. Usando `trimesh`, calcula centro de masa, volumen, e inercia del bloque. Inyecta estos valores junto con los parámetros del experimento (altura de columna, masa, rotación) en el XML mediante `lxml`.
@@ -276,7 +279,7 @@ El pipeline se implementa en Python y consta de 4 módulos desacoplados:
 
 **Módulo 4 — ML Surrogate:** Entrena un regresor de procesos gaussianos (`GaussianProcessRegressor`, scikit-learn) sobre los resultados de la campaña paramétrica. Kernel Matérn (ν = 2.5) con validación cruzada Leave-One-Out.
 
-**Fase 5 — Cuantificación de Incertidumbre (UQ):** Una vez entrenado el GP surrogate, se propagan las incertidumbres de los parámetros de entrada mediante Monte Carlo (10,000 muestras evaluadas sobre el GP en segundos). Se calculan intervalos de confianza al 95% y se realiza análisis de sensibilidad global mediante índices de Sobol (Sobol', 2001; Saltelli, 2002), identificando qué parámetros dominan la variabilidad del resultado. Este enfoque sigue el precedente de Salmanidou et al. (2020), quienes aplicaron GP + Monte Carlo + Sobol a simulaciones SPH de tsunami.
+**Módulo 5 — Cuantificación de Incertidumbre (UQ):** Una vez entrenado el GP surrogate, se propagan las incertidumbres de los parámetros de entrada mediante Monte Carlo (10,000 muestras evaluadas sobre el GP en segundos). Se calculan intervalos de confianza al 95% y se realiza análisis de sensibilidad global mediante índices de Sobol (Sobol', 2001; Saltelli, 2002), identificando qué parámetros dominan la variabilidad del resultado. Este enfoque sigue el precedente de Salmanidou et al. (2017, 2020), quienes aplicaron GP + Monte Carlo + Sobol a simulaciones SPH de tsunami.
 
 ### 3.7.2 Diseño de Experimentos
 
@@ -284,11 +287,11 @@ La campaña paramétrica emplea Muestreo por Hipercubo Latino (LHS) con `scipy.s
 
 **Parámetros de entrada (pendientes de validación):**
 
-| Parámetro | Rango tentativo | Unidad |
-|-----------|----------------|--------|
-| Altura columna de agua | 0.2 – 0.5 | m |
-| Masa del bloque | 1.0 – 3.0 | kg |
-| Ángulo de rotación Z | 0 – 90 | grados |
+| Parámetro | Rango | Unidad | Estado |
+|-----------|-------|--------|--------|
+| Altura columna de agua | 0.10 – 0.50 | m | Tentativo |
+| Masa del bloque | 0.80 – 1.60 | kg | Tentativo |
+| Ángulo de rotación Z | 0 – 90 | grados | Tentativo |
 
 **Número de casos:** 50 (modo producción)
 
@@ -297,7 +300,7 @@ La campaña paramétrica emplea Muestreo por Hipercubo Latino (LHS) con `scipy.s
 | Componente | Desarrollo (laptop) | Producción (workstation) |
 |------------|---------------------|--------------------------|
 | GPU | RTX 4060 (8 GB VRAM) | RTX 5090 (32 GB VRAM) |
-| CPU | i7-14650HX | — |
+| CPU | i7-14650HX | i9-14900KF |
 | Uso | Pruebas, dp ≥ 0.02 | Campaña completa, dp = 0.004 |
 
 ---

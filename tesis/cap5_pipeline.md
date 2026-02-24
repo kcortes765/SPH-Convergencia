@@ -8,21 +8,21 @@ Para ejecutar una campaña paramétrica de 50+ simulaciones SPH de manera eficie
 
 ## 5.2 Arquitectura General
 
-El pipeline consta de 4 módulos desacoplados conectados secuencialmente, orquestados por un módulo central:
+El pipeline consta de 5 módulos desacoplados conectados secuencialmente, orquestados por un módulo central:
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                    main_orchestrator.py                                │
-│                                                                       │
-│  ┌────────────┐   ┌─────────────┐   ┌─────────────┐   ┌───────────┐│
-│  │  geometry   │──►│   batch     │──►│    data     │──►│    ml     ││
-│  │  builder    │   │   runner    │   │   cleaner   │   │ surrogate ││
-│  │ (STL→XML)  │   │ (GPU SPH)  │   │ (CSV→SQL)  │   │ (GP Reg)  ││
-│  └────────────┘   └─────────────┘   └─────────────┘   └───────────┘│
-│                                                                       │
-│  Entrada: experiment_matrix.csv (LHS)                                 │
-│  Salida:  results.sqlite + gp_surrogate.pkl                         │
-└──────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                         main_orchestrator.py                                  │
+│                                                                               │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐     │
+│  │ geometry │─►│  batch   │─►│   data   │─►│    ml    │─►│    uq    │     │
+│  │ builder  │  │  runner  │  │ cleaner  │  │surrogate │  │ (Sobol+  │     │
+│  │(STL→XML) │  │(GPU SPH) │  │(CSV→SQL) │  │ (GP Reg) │  │  MC+CI)  │     │
+│  └──────────┘  └──────────┘  └──────────┘  └──────────┘  └──────────┘     │
+│                                                                               │
+│  Entrada: experiment_matrix.csv (LHS)                                         │
+│  Salida:  results.sqlite + gp_surrogate.pkl + sobol_indices + CI bands       │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Principio de diseño:** Cada módulo puede ejecutarse independientemente, facilitando el debug y la re-ejecución parcial en caso de fallo.
@@ -157,7 +157,7 @@ Antes de declarar éxito, se verifica que `ChronoExchange_mkbound_*.csv` existe 
 |------------|-------|
 | Algoritmo | GaussianProcessRegressor (scikit-learn) |
 | Kernel | Matérn (ν = 2.5) + WhiteKernel |
-| Features | dam_height, boulder_mass |
+| Features | dam_height, boulder_mass, boulder_rot_z |
 | Target | max_displacement |
 | Preprocesamiento | StandardScaler |
 | Validación | Leave-One-Out Cross-Validation |
@@ -220,9 +220,9 @@ Se emplea LHS (`scipy.stats.qmc.LatinHypercube`, semilla = 42) para distribuir u
 
 | Parámetro | Rango | Unidad | Estado |
 |-----------|-------|--------|--------|
-| Altura columna de agua | [0.2, 0.5] | m | Tentativo |
-| Masa del bloque | [1.0, 3.0] | kg | Tentativo |
-| Ángulo rotación Z | [0, 90] | ° | Pendiente Dr. Moris |
+| Altura columna de agua | [0.10, 0.50] | m | Tentativo |
+| Masa del bloque | [0.80, 1.60] | kg | Tentativo |
+| Ángulo rotación Z | [0, 90] | ° | Tentativo |
 
 **Número de casos:** 50 (producción), 5 (desarrollo)
 
@@ -233,6 +233,7 @@ Se emplea LHS (`scipy.stats.qmc.LatinHypercube`, semilla = 42) para distribuir u
 | | Laptop (desarrollo) | Workstation (producción) |
 |---|---|---|
 | GPU | RTX 4060 (8 GB) | RTX 5090 (32 GB) |
+| CPU | i7-14650HX | i9-14900KF |
 | Uso | Pruebas dp ≥ 0.02 | Campaña dp = 0.004 |
 | Tiempo por caso | ~13 min (dp=0.02) | ~260 min (dp=0.004) |
 | Deploy | git push | Invoke-WebRequest ZIP |
@@ -277,7 +278,7 @@ Los archivos `.bi4` (partículas binarias) son el principal consumidor de disco.
 
 ---
 
-## 5.12 Cuantificación de Incertidumbre (UQ)
+## 5.12 Módulo 5: Cuantificación de Incertidumbre (UQ)
 
 ### 5.12.1 Motivación
 
@@ -285,7 +286,7 @@ Los resultados del GP surrogate son predicciones puntuales. Sin embargo, los par
 
 ### 5.12.2 Monte Carlo sobre el GP
 
-1. Se definen distribuciones de probabilidad para cada parámetro de entrada (ej. masa ~ Normal(150, 15), altura ~ Normal(0.3, 0.06))
+1. Se definen distribuciones de probabilidad para cada parámetro de entrada (ej. masa ~ Uniform(0.80, 1.60), altura ~ Uniform(0.10, 0.50))
 2. Se generan 10,000 muestras aleatorias del espacio de parámetros
 3. Cada muestra se evalúa en el GP surrogate (milisegundos por evaluación)
 4. Se construyen distribuciones de los outputs: desplazamiento, rotación, fuerza
