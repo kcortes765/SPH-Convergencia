@@ -206,7 +206,7 @@ def verify_outputs(out_dir: Path, case_name: str) -> bool:
 
 
 def run_case(case_dir: Path, config: dict,
-             processed_dir: Path = None) -> dict:
+             processed_dir: Path = None, dp: float = None) -> dict:
     """
     Ejecuta la cadena completa para UN caso de DualSPHysics.
 
@@ -222,6 +222,8 @@ def run_case(case_dir: Path, config: dict,
         config: Dict de configuracion (de dsph_config.json).
         processed_dir: Directorio donde copiar los CSVs resultantes.
                        Si es None, usa data/processed/{case_name}/.
+        dp: Distancia entre particulas (m). Si se proporciona, usa timeout
+            adaptativo basado en tabla de convergencia.
 
     Returns:
         dict con: success (bool), case_name, duration_s, csvs_collected,
@@ -242,16 +244,18 @@ def run_case(case_dir: Path, config: dict,
     if processed_dir is None:
         processed_dir = case_dir.parent.parent / 'data' / 'processed' / case_name
 
+    # Timeout adaptativo: prioridad dp explicito > regex en nombre > config default
     timeout_s = config.get('defaults', {}).get('timeout_seconds', 7200)
-
-    # Timeout adaptativo si dp disponible en el nombre del caso
-    # Formato esperado: conv_dp0004, render_dp0004, lhs_001, etc.
-    import re
-    dp_match = re.search(r'dp(\d+)', case_name)
-    if dp_match:
-        dp_val = float(f"0.{dp_match.group(1)}")
-        timeout_s = get_timeout_for_dp(dp_val, config)
-        logger.info(f"  Timeout adaptativo para dp={dp_val}: {timeout_s}s ({timeout_s/3600:.1f}h)")
+    if dp is not None:
+        timeout_s = get_timeout_for_dp(dp, config)
+        logger.info(f"  Timeout adaptativo para dp={dp}: {timeout_s}s ({timeout_s/3600:.1f}h)")
+    else:
+        import re
+        dp_match = re.search(r'dp(\d+)', case_name)
+        if dp_match:
+            dp_val = float(f"0.{dp_match.group(1)}")
+            timeout_s = get_timeout_for_dp(dp_val, config)
+            logger.info(f"  Timeout adaptativo para dp={dp_val}: {timeout_s}s ({timeout_s/3600:.1f}h)")
 
     result = {
         'case_name': case_name,

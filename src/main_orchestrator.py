@@ -202,7 +202,7 @@ def run_pipeline_case(row: pd.Series, project_root: Path,
         logger.info(f"  [1/3] Geometry: OK ({xml_path.name})")
 
         # --- PASO 2: Batch Runner ---
-        run_result = run_case(case_dir, config, processed_dir)
+        run_result = run_case(case_dir, config, processed_dir, dp=dp)
 
         if not run_result['success']:
             pipeline_result['error'] = f"Simulacion fallida: {run_result['error_message']}"

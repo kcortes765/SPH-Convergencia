@@ -4,12 +4,13 @@ run_production.py — Script "Boton Rojo" para campana de produccion masiva
 Lee config/param_ranges.json, genera matriz LHS, ejecuta el pipeline
 completo en la GPU, y sincroniza status via archivo JSON.
 
+Notificaciones push via ntfy.sh (instalar app ntfy en celular,
+suscribirse al topic configurado).
+
 Ejecutar:
-    python run_production.py --generate 50       # Solo generar matriz
-    python run_production.py --dry-run            # Simular sin ejecutar GPU
-    python run_production.py                      # Correr campaña (dev dp)
-    python run_production.py --prod               # Correr campaña (prod dp)
-    python run_production.py --prod --desde 15    # Recovery: continuar desde caso 15
+    python run_production.py --pilot --dry-run     # Verificar sin GPU
+    python run_production.py --pilot --prod         # Correr 100 casos
+    python run_production.py --pilot --prod --desde 15  # Recovery
 
 Autor: Kevin Cortes (UCN 2026)
 """
@@ -19,13 +20,14 @@ import json
 import logging
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
 
-# Agregar src/ al path
-sys.path.insert(0, str(Path(__file__).parent / 'src'))
+# Agregar src/ al path (scripts/ esta un nivel abajo de la raiz)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT / 'src'))
 
 from main_orchestrator import load_param_ranges, generate_experiment_matrix, run_pipeline_case
 from batch_runner import load_config
@@ -33,10 +35,48 @@ from data_cleaner import save_to_sqlite
 from ml_surrogate import run_surrogate
 
 logger = logging.getLogger(__name__)
-
-PROJECT_ROOT = Path(__file__).resolve().parent
 STATUS_FILE = PROJECT_ROOT / "data" / "production_status.json"
 
+
+# ---------------------------------------------------------------------------
+# Notificaciones push via ntfy.sh
+# ---------------------------------------------------------------------------
+
+NTFY_TOPIC = "sph-kevin-tesis-2026"
+NTFY_ENABLED = True
+
+
+def notify(title: str, message: str, priority: str = "default", tags: str = ""):
+    """
+    Envia notificacion push via ntfy.sh.
+
+    Prioridades: min, low, default, high, urgent
+    Tags: ver https://docs.ntfy.sh/emojis/
+
+    No lanza excepciones — la produccion no debe detenerse por una notificacion fallida.
+    """
+    if not NTFY_ENABLED:
+        return
+    try:
+        import urllib.request
+        req = urllib.request.Request(
+            f"https://ntfy.sh/{NTFY_TOPIC}",
+            data=message.encode('utf-8'),
+            headers={
+                "Title": title,
+                "Priority": priority,
+                "Tags": tags,
+            },
+        )
+        urllib.request.urlopen(req, timeout=10)
+        logger.info(f"  [ntfy] {title}")
+    except Exception as e:
+        logger.warning(f"  [ntfy] Fallo notificacion: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Status file
+# ---------------------------------------------------------------------------
 
 def update_status(status: dict):
     """Escribe status JSON atomicamente para monitoreo remoto."""
@@ -55,6 +95,10 @@ def update_status(status: dict):
 
 MAX_FAIL_RATE = 0.30  # Abort si >30% de los casos fallan
 
+
+# ---------------------------------------------------------------------------
+# Pre-flight
+# ---------------------------------------------------------------------------
 
 def preflight_check(config: dict) -> bool:
     """Verificaciones pre-produccion. Retorna True si todo OK."""
@@ -86,7 +130,7 @@ def preflight_check(config: dict) -> bool:
         logger.error(f"  FALTA: boulder STL -> {stl}")
         checks_passed = False
 
-    # 4. Espacio en disco (estimar 20 GB por caso temporal)
+    # 4. Espacio en disco
     import shutil as _shutil
     data_dir = PROJECT_ROOT / 'data'
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -98,6 +142,10 @@ def preflight_check(config: dict) -> bool:
 
     return checks_passed
 
+
+# ---------------------------------------------------------------------------
+# Produccion
+# ---------------------------------------------------------------------------
 
 def run_production(args):
     """Pipeline de produccion completo."""
@@ -121,7 +169,7 @@ def run_production(args):
     with open(ranges_json) as f:
         ranges_cfg = json.load(f)
     if args.pilot:
-        n_samples = ranges_cfg['sampling'].get('n_samples_pilot', 35)
+        n_samples = ranges_cfg['sampling'].get('n_samples_pilot', 100)
         logger.info(f"MODO PILOTO: {n_samples} muestras")
     elif args.prod:
         n_samples = ranges_cfg['sampling']['n_samples_prod']
@@ -153,6 +201,7 @@ def run_production(args):
     n_pending = len(matrix)
 
     # Status inicial
+    campaign_start = datetime.now()
     status = {
         'phase': 'production',
         'dp': dp,
@@ -163,7 +212,7 @@ def run_production(args):
         'completed': 0,
         'failed': 0,
         'current_case': '',
-        'start_time': datetime.now().isoformat(),
+        'start_time': campaign_start.isoformat(),
         'dry_run': args.dry_run,
     }
     update_status(status)
@@ -172,6 +221,8 @@ def run_production(args):
     logger.info("Pre-flight check...")
     if not preflight_check(config):
         logger.error("PRE-FLIGHT FALLIDO. Corregir errores antes de continuar.")
+        notify("PRE-FLIGHT FALLIDO", "Ejecutables o archivos faltantes. Revisar log.",
+               priority="urgent", tags="x")
         sys.exit(1)
     logger.info("Pre-flight OK.\n")
 
@@ -181,8 +232,19 @@ def run_production(args):
     logger.info(f"# {'DRY RUN' if args.dry_run else 'EJECUCION REAL'}")
     logger.info(f"{'#'*60}\n")
 
+    # Notificacion de inicio
+    notify(
+        f"PRODUCCION INICIADA: {n_pending} casos",
+        f"dp={dp}, modo={'prod' if args.prod else 'dev'}\n"
+        f"Estimado: ~{n_pending * 4:.0f}h ({n_pending * 4 / 24:.1f} dias)\n"
+        f"Recovery desde: {desde}",
+        priority="high",
+        tags="rocket",
+    )
+
     all_results = []
     successful_results = []
+    case_durations = []  # Para calcular ETA
 
     for i, (_, row) in enumerate(matrix.iterrows(), 1):
         case_id = row['case_id']
@@ -190,6 +252,15 @@ def run_production(args):
 
         status['current_case'] = case_id
         status['progress'] = f"{i}/{n_pending}"
+
+        # Calcular ETA
+        if case_durations:
+            avg_duration = sum(case_durations) / len(case_durations)
+            remaining = (n_pending - i) * avg_duration
+            eta = datetime.now() + timedelta(seconds=remaining)
+            status['eta'] = eta.isoformat()
+            status['avg_case_seconds'] = round(avg_duration, 1)
+            status['eta_human'] = f"{remaining/3600:.1f}h ({remaining/86400:.1f}d)"
         update_status(status)
 
         if args.dry_run:
@@ -199,18 +270,47 @@ def run_production(args):
         try:
             result = run_pipeline_case(row, PROJECT_ROOT, config, dp)
             all_results.append(result)
+            case_durations.append(result['duration_s'])
 
             if result['success'] and result['result'] is not None:
                 successful_results.append(result['result'])
                 status['completed'] += 1
-                logger.info(f"  OK ({result['duration_s']:.1f}s)")
+                dur_min = result['duration_s'] / 60
+                cr = result['result']
+                logger.info(f"  OK ({dur_min:.1f}min, disp={cr.max_displacement:.3f}m)")
+
+                # Notificar cada 10 casos
+                if status['completed'] % 10 == 0:
+                    elapsed = (datetime.now() - campaign_start).total_seconds()
+                    eta_str = status.get('eta_human', '?')
+                    notify(
+                        f"Progreso: {status['completed']}/{n_pending} OK",
+                        f"Fallidos: {status['failed']}\n"
+                        f"Ultimo: {case_id} ({dur_min:.0f}min)\n"
+                        f"Tiempo total: {elapsed/3600:.1f}h\n"
+                        f"ETA restante: {eta_str}",
+                        tags="chart_with_upwards_trend",
+                    )
             else:
                 status['failed'] += 1
                 logger.error(f"  FALLO: {result['error']}")
+                notify(
+                    f"FALLO: {case_id}",
+                    f"Error: {result['error']}\n"
+                    f"Completados: {status['completed']}, Fallidos: {status['failed']}",
+                    priority="high",
+                    tags="warning",
+                )
 
         except Exception as e:
             status['failed'] += 1
             logger.error(f"  EXCEPCION: {e}", exc_info=True)
+            notify(
+                f"EXCEPCION: {case_id}",
+                f"{type(e).__name__}: {e}",
+                priority="high",
+                tags="rotating_light",
+            )
 
         update_status(status)
 
@@ -226,6 +326,14 @@ def run_production(args):
             status['phase'] = 'aborted'
             status['abort_reason'] = f"Fail rate {fail_pct:.0f}% after {total_run} cases"
             update_status(status)
+            notify(
+                "ABORT: Tasa de fallos excesiva",
+                f"{status['failed']}/{total_run} fallidos ({fail_pct:.0f}%)\n"
+                f"Ultimo caso: {case_id}\n"
+                f"Usar --desde {desde + i} para recovery",
+                priority="urgent",
+                tags="octagonal_sign",
+            )
             break
 
         # Guardar a SQLite despues de cada caso exitoso (crash safety)
@@ -235,12 +343,15 @@ def run_production(args):
             successful_results = []  # Reset para no duplicar
 
     # Status final
+    elapsed = (datetime.now() - campaign_start).total_seconds()
     status['phase'] = 'completed'
     status['end_time'] = datetime.now().isoformat()
+    status['total_elapsed_hours'] = round(elapsed / 3600, 2)
     update_status(status)
 
     if args.dry_run:
         logger.info(f"\nDRY RUN completado. {n_pending} casos simulados.")
+        notify("DRY RUN completado", f"{n_pending} casos verificados OK", tags="white_check_mark")
         return
 
     # Resumen
@@ -250,15 +361,35 @@ def run_production(args):
     logger.info(f"# PRODUCCION COMPLETADA")
     logger.info(f"# Exitosos: {ok}/{n_pending}")
     logger.info(f"# Fallidos: {fail}/{n_pending}")
+    logger.info(f"# Tiempo total: {elapsed/3600:.1f}h ({elapsed/86400:.1f}d)")
     logger.info(f"{'#'*60}")
+
+    # Notificacion final
+    notify(
+        f"COMPLETADO: {ok}/{n_pending} exitosos",
+        f"Fallidos: {fail}\n"
+        f"Tiempo total: {elapsed/3600:.1f}h ({elapsed/86400:.1f} dias)\n"
+        f"Promedio: {sum(case_durations)/len(case_durations)/60:.1f}min/caso" if case_durations else "",
+        priority="high",
+        tags="trophy",
+    )
 
     # Re-entrenar surrogate si hay suficientes datos
     if ok >= 10:
         logger.info("\nRe-entrenando GP surrogate con datos frescos...")
-        run_surrogate()
+        try:
+            run_surrogate()
+            notify("GP re-entrenado", f"Surrogate actualizado con {ok} datos reales",
+                   tags="brain")
+        except Exception as e:
+            logger.error(f"Error re-entrenando surrogate: {e}")
+            notify("Error GP surrogate", str(e), priority="high", tags="warning")
 
 
 if __name__ == '__main__':
+    # Asegurar que data/ existe para el log file
+    (PROJECT_ROOT / 'data').mkdir(parents=True, exist_ok=True)
+
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s %(levelname)s: %(message)s',
@@ -282,7 +413,12 @@ if __name__ == '__main__':
     parser.add_argument('--desde', type=int, default=0,
                         help='Recovery: continuar desde caso N (0-indexed)')
     parser.add_argument('--dry-run', action='store_true',
-                        help='Simular campaña sin ejecutar GPU')
+                        help='Simular campana sin ejecutar GPU')
+    parser.add_argument('--no-notify', action='store_true',
+                        help='Desactivar notificaciones push')
     args = parser.parse_args()
+
+    if args.no_notify:
+        NTFY_ENABLED = False
 
     run_production(args)
