@@ -39,8 +39,8 @@
     },
     "sampling": {
         "n_samples_dev": 5,
-        "n_samples_pilot": 35,
-        "n_samples_prod": 50,
+        "n_samples_pilot": 100,
+        "n_samples_prod": 100,
         "seed": 42
     }
 }
