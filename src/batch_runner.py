@@ -232,14 +232,20 @@ def run_case(case_dir: Path, config: dict,
     timeout_s = config.get('defaults', {}).get('timeout_seconds', 7200)
     if dp is not None:
         timeout_s = get_timeout_for_dp(dp, config)
-        logger.info(f"  Timeout adaptativo para dp={dp}: {timeout_s}s ({timeout_s/3600:.1f}h)")
+        if timeout_s is not None:
+            logger.info(f"  Timeout adaptativo para dp={dp}: {timeout_s}s ({timeout_s/3600:.1f}h)")
+        else:
+            logger.info(f"  Timeout: sin limite (dp={dp})")
     else:
         import re
         dp_match = re.search(r'dp(\d+)', case_name)
         if dp_match:
             dp_val = float(f"0.{dp_match.group(1)}")
             timeout_s = get_timeout_for_dp(dp_val, config)
-            logger.info(f"  Timeout adaptativo para dp={dp_val}: {timeout_s}s ({timeout_s/3600:.1f}h)")
+            if timeout_s is not None:
+                logger.info(f"  Timeout adaptativo para dp={dp_val}: {timeout_s}s ({timeout_s/3600:.1f}h)")
+            else:
+                logger.info(f"  Timeout: sin limite (dp={dp_val})")
 
     result = {
         'case_name': case_name,
