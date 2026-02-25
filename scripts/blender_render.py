@@ -32,7 +32,19 @@ import math
 # PROJECT_ROOT = directorio raiz del proyecto (padre de scripts/)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-RENDER_DIR = os.path.join(PROJECT_ROOT, "data", "render", "dp004")
+# Auto-detectar directorio de render (el mas reciente en data/render/)
+_RENDER_BASE = os.path.join(PROJECT_ROOT, "data", "render")
+def _find_render_dir():
+    if not os.path.exists(_RENDER_BASE):
+        return os.path.join(_RENDER_BASE, "dp004")  # fallback
+    subdirs = [d for d in os.listdir(_RENDER_BASE)
+               if os.path.isdir(os.path.join(_RENDER_BASE, d))]
+    if not subdirs:
+        return os.path.join(_RENDER_BASE, "dp004")
+    subdirs.sort(key=lambda d: os.path.getmtime(os.path.join(_RENDER_BASE, d)), reverse=True)
+    return os.path.join(_RENDER_BASE, subdirs[0])
+
+RENDER_DIR = _find_render_dir()
 PLY_DIR = os.path.join(RENDER_DIR, "ply")
 OUTPUT_DIR = os.path.join(RENDER_DIR, "blender_output")
 CHRONO_CSV = os.path.join(RENDER_DIR, "csv", "ChronoExchange_mkbound_51.csv")

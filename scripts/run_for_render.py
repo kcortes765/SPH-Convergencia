@@ -44,9 +44,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # CONFIGURACION DEL RENDER
 # ═══════════════════════════════════════════════════════════════════════
 
-RENDER_DP = 0.004
-RENDER_TIMEOUT_XML = 0.5    # 1 snapshot cada 0.5s = 20 frames en 10s (~17 GB de .bi4)
-CASE_NAME = "render_dp0004"
+RENDER_DP = 0.004           # Default GPU. Usar --dp 0.01 para CPU render rapido
+RENDER_TIMEOUT_XML = 0.5    # 1 snapshot cada 0.5s = 20 frames en 10s
+CASE_NAME = "render_dp0004" # Se actualiza si se usa --dp
 
 # Misma fisica que el estudio de convergencia (NO modificar)
 BASE_PARAMS = {
@@ -151,8 +151,8 @@ def generate_case(config):
 # FASE 2: SIMULACION
 # ═══════════════════════════════════════════════════════════════════════
 
-def run_simulation(config, case_dir):
-    """Ejecuta GenCase + DualSPHysics GPU."""
+def run_simulation(config, case_dir, use_cpu=False):
+    """Ejecuta GenCase + DualSPHysics (GPU o CPU)."""
     out_dir = case_dir / f"{CASE_NAME}_out"
 
     # Limpiar output previo
@@ -168,13 +168,22 @@ def run_simulation(config, case_dir):
         'GenCase', timeout_s=600, cwd=case_dir
     )
 
-    # DualSPHysics GPU (timeout 24h para dp=0.004)
-    dsph_exe = get_exe(config, 'dualsphysics_gpu')
-    gpu_id = config.get('defaults', {}).get('gpu_id', 0)
-    run_cmd(
-        [dsph_exe, f'-gpu:{gpu_id}', f"{out_rel}/{CASE_NAME}", out_rel],
-        'DualSPHysics', timeout_s=86400, cwd=case_dir
-    )
+    if use_cpu:
+        # DualSPHysics CPU — no toca la GPU, usa todos los cores disponibles
+        dsph_exe = get_exe(config, 'dualsphysics_cpu')
+        logger.info(f"  Modo CPU — la GPU NO se usa (sims LHS seguras)")
+        run_cmd(
+            [dsph_exe, f"{out_rel}/{CASE_NAME}", out_rel],
+            'DualSPHysics-CPU', timeout_s=86400, cwd=case_dir
+        )
+    else:
+        # DualSPHysics GPU
+        dsph_exe = get_exe(config, 'dualsphysics_gpu')
+        gpu_id = config.get('defaults', {}).get('gpu_id', 0)
+        run_cmd(
+            [dsph_exe, f'-gpu:{gpu_id}', f"{out_rel}/{CASE_NAME}", out_rel],
+            'DualSPHysics-GPU', timeout_s=86400, cwd=case_dir
+        )
 
     return out_dir
 
@@ -190,7 +199,8 @@ def run_visual_postprocess(config, case_dir, out_dir):
 
     CRITICO: Esto debe ejecutarse ANTES de cleanup_binaries().
     """
-    render_dir = PROJECT_ROOT / 'data' / 'render' / 'dp004'
+    dp_str = f"dp{str(RENDER_DP).replace('.', '').replace('0', '', 1)}"
+    render_dir = PROJECT_ROOT / 'data' / 'render' / dp_str
 
     # Crear subdirectorios
     dirs = {
@@ -349,21 +359,34 @@ def cleanup_bi4(case_dir, out_dir):
 # ═══════════════════════════════════════════════════════════════════════
 
 def main():
+    global RENDER_DP, CASE_NAME
+
     args = sys.argv[1:]
     skip_sim = '--skip-sim' in args
     keep_bi4 = '--keep-bi4' in args
+    use_cpu = '--cpu' in args
+
+    # Override dp si se especifica (ej: --dp 0.01 para CPU render rapido)
+    if '--dp' in args:
+        idx = args.index('--dp')
+        if idx + 1 < len(args):
+            RENDER_DP = float(args[idx + 1])
+            dp_tag = str(RENDER_DP).replace('.', '').lstrip('0') or '0'
+            CASE_NAME = f"render_dp{dp_tag}"
 
     config = load_config()
     case_dir = PROJECT_ROOT / config['paths']['cases_dir'] / CASE_NAME
     out_dir = case_dir / f"{CASE_NAME}_out"
+
+    device = "CPU" if use_cpu else f"GPU:{config['defaults'].get('gpu_id', 0)}"
 
     total_start = time.time()
 
     print(f"\n{'='*60}")
     print(f"  RUN FOR RENDER — dp={RENDER_DP}, TimeOut={RENDER_TIMEOUT_XML}s")
     print(f"  Caso: {CASE_NAME}")
-    print(f"  Hardware: GPU:{config['defaults'].get('gpu_id', 0)}")
-    print(f"  Opciones: skip_sim={skip_sim}, keep_bi4={keep_bi4}")
+    print(f"  Hardware: {device}")
+    print(f"  Opciones: skip_sim={skip_sim}, keep_bi4={keep_bi4}, cpu={use_cpu}")
     print(f"{'='*60}\n")
 
     try:
@@ -378,12 +401,15 @@ def main():
                 logger.error(f"  No puedes usar --skip-sim sin haber corrido la simulacion antes")
                 sys.exit(1)
 
-        # FASE 2: Simulacion GPU
+        # FASE 2: Simulacion
         if not skip_sim:
-            logger.info("\nFASE 2: Simulacion GPU...")
-            logger.info(f"  Estimado: ~260 min (4.3h) para dp={RENDER_DP}")
-            logger.info(f"  Generara ~20 snapshots de ~26.1M particulas (~17 GB de .bi4)")
-            out_dir = run_simulation(config, case_dir)
+            logger.info(f"\nFASE 2: Simulacion {device}...")
+            if use_cpu:
+                logger.info(f"  MODO CPU — no interfiere con sims GPU en curso")
+                logger.info(f"  dp={RENDER_DP}, estimado ~2-4h en i9-14900KF")
+            else:
+                logger.info(f"  dp={RENDER_DP}, estimado ~260 min en RTX 5090")
+            out_dir = run_simulation(config, case_dir, use_cpu=use_cpu)
         else:
             logger.info("\nFASE 2: SALTADA (--skip-sim)")
             if not out_dir.exists():
@@ -405,17 +431,17 @@ def main():
         else:
             logger.info("\nFASE 4: SALTADA (--keep-bi4)")
 
+    dp_tag = str(RENDER_DP).replace('.', '').lstrip('0') or '0'
     total_min = (time.time() - total_start) / 60
     total_h = total_min / 60
 
     print(f"\n{'='*60}")
     print(f"  COMPLETADO en {total_min:.1f} min ({total_h:.1f}h)")
-    print(f"  Datos de render en: data/render/dp004/")
+    print(f"  Datos de render en: data/render/dp{dp_tag}/")
     print(f"{'='*60}")
     print(f"\n  Proximo paso:")
-    print(f"    1. Abrir ParaView -> verificar data/render/dp004/surface/WaterSurface_*.vtk")
-    print(f"    2. Abrir Blender -> importar STLs + isosurface + animar con CSV")
-    print(f"    3. Ver PLAN_RENDER.md para el workflow completo")
+    print(f"    python scripts/convert_vtk_to_ply.py")
+    print(f"    blender --background --python scripts/blender_render.py")
 
 
 if __name__ == '__main__':
