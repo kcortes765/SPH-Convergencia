@@ -17,7 +17,7 @@
         <geometry>
             <definition dp="0.05" units_comment="metres (m)"> 
 				<pointmin x="-0.05" y="-0.05" z="-0.15" />
-                <pointmax x="15.05" y="1.05" z="1.55" />
+                <pointmax x="30.05" y="1.05" z="1.55" />
             </definition>
             <commands>
                 <mainlist>
